@@ -1,0 +1,27 @@
+{
+  "name": "functions",
+  "version": "0.1.0",
+  "private": true,
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "test": "vitest run src",
+    "test:watch": "vitest src",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "@google-cloud/translate": "9.4.2",
+    "@line/bot-sdk": "11.2.0",
+    "firebase-admin": "14.2.0",
+    "firebase-functions": "7.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

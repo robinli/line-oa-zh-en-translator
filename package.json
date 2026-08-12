@@ -1,0 +1,17 @@
+{
+  "name": "line-group-zh-en-translator",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix functions run build",
+    "test": "npm --prefix functions test",
+    "check": "npm --prefix functions run check",
+    "verify": "npm --prefix functions run verify",
+    "emulators": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "engines": {
+    "node": "22"
+  }
+}
+
