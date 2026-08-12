@@ -54,6 +54,8 @@ firebase.cmd emulators:start --only functions
 
 ### 將 LINE OA 加入群組
 
+![Auto Translate 使用說明](docs/Auto-Translate-使用說明.png)
+
 若需要將 LINE OA 加入群組，請依照以下順序操作：
 
 1. 前往 [LINE Official Account Manager 設定](https://manager.line.biz/account/@363xfurd/setting)，先將「接受邀請加入群組或多人聊天室」設定為接受。
