@@ -93,7 +93,7 @@ describe("processLineWebhook", () => {
     );
     expect(replier.replyText).toHaveBeenCalledWith(
       "audio-reply-token",
-      "中文：\n明天下午三點開會\n\n英文：\nHello",
+      "明天下午三點開會\n\nHello",
     );
     expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
@@ -106,7 +106,7 @@ describe("processLineWebhook", () => {
     expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
     expect(replier.replyText).toHaveBeenCalledWith(
       "audio-reply-token",
-      "語音轉文字：\nMeeting at three tomorrow.",
+      "Meeting at three tomorrow.",
     );
     expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
@@ -149,23 +149,15 @@ describe("processLineWebhook", () => {
     expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
-  it("transcribes one-to-one Chinese audio without group activation", async () => {
+  it("ignores one-to-one audio", async () => {
     const result = await callWebhook({events: [userAudioEvent()]});
 
     expect(activationStore.isEnabled).not.toHaveBeenCalled();
-    expect(audioContentLoader.getMessageContent).toHaveBeenCalledWith(
-      "user-audio-message-id",
-      10_000_000,
-    );
-    expect(transcriber.transcribe).toHaveBeenCalledWith(Buffer.from("audio"));
-    expect(translator.translateTraditionalChineseToEnglish).toHaveBeenCalledWith(
-      "明天下午三點開會",
-    );
-    expect(replier.replyText).toHaveBeenCalledWith(
-      "user-audio-reply-token",
-      "中文：\n明天下午三點開會\n\n英文：\nHello",
-    );
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+    expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
+    expect(transcriber.transcribe).not.toHaveBeenCalled();
+    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
+    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
   });
 
   it("ignores other one-to-one messages", async () => {

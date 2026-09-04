@@ -6,12 +6,10 @@ import {
   isGroupAudioMessageEvent,
   isGroupJoinEvent,
   isGroupTextMessageEvent,
-  isUserAudioMessageEvent,
   isUserTextMessageEvent,
   type GroupAudioMessageEvent,
   type GroupTextMessageEvent,
   type LineWebhookBody,
-  type UserAudioMessageEvent,
 } from "./domain.js";
 import {verifyLineSignature} from "./signature.js";
 import type {
@@ -136,28 +134,6 @@ export async function processLineWebhook(
       continue;
     }
 
-    if (isUserAudioMessageEvent(event)) {
-      try {
-        await processAudioMessage(
-          event,
-          maxMessageLength,
-          maxAudioDurationMs,
-          maxAudioBytes,
-          dependencies,
-        );
-        processed += 1;
-      } catch (error: unknown) {
-        failed += 1;
-        logEventFailure(
-          "Failed to process a LINE one-to-one audio message.",
-          event.webhookEventId,
-          error,
-          dependencies,
-        );
-      }
-      continue;
-    }
-
     if (isGroupJoinEvent(event)) {
       try {
         const enabled = await dependencies.activationStore.isEnabled(event.source.groupId);
@@ -249,7 +225,7 @@ async function processGroupAudioMessage(
 }
 
 async function processAudioMessage(
-  event: GroupAudioMessageEvent | UserAudioMessageEvent,
+  event: GroupAudioMessageEvent,
   maxMessageLength: number,
   maxAudioDurationMs: number,
   maxAudioBytes: number,
@@ -291,10 +267,7 @@ async function processAudioMessage(
   }
 
   if (!containsChinese(transcript)) {
-    await dependencies.replier.replyText(
-      event.replyToken,
-      `語音轉文字：\n${transcript}`,
-    );
+    await dependencies.replier.replyText(event.replyToken, transcript);
     return;
   }
 
@@ -302,7 +275,7 @@ async function processAudioMessage(
     await dependencies.translator.translateTraditionalChineseToEnglish(transcript);
   await dependencies.replier.replyText(
     event.replyToken,
-    `中文：\n${transcript}\n\n英文：\n${translatedText}`,
+    `${transcript}\n\n${translatedText}`,
   );
 }
 

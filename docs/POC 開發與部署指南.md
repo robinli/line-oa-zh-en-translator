@@ -5,14 +5,14 @@
 - Firebase Functions 第 2 代 TypeScript 專案，執行環境為 Node.js 22、區域為 `asia-east1`。
 - 使用 LINE SDK 驗證未修改的 Webhook raw body 與 `x-line-signature`。
 - 群組必須先由授權者輸入 `/啟用翻譯`，才處理中文／中英混合文字與 LINE 語音；停用後兩項功能都停止。
-- 一對一聊天室只支援 `/我的ID` 與 LINE 語音；一對一語音不需要群組啟用狀態。
+- 一對一聊天室只支援 `/我的ID`；一般文字、語音及其他訊息均不處理。
 - 呼叫 Cloud Translation Advanced API v3，指定 `zh-TW` 翻譯為 `en`。
 - 呼叫 Cloud Speech-to-Text API v2，將 LINE 的 MP3／M4A 語音辨識為繁體中文或英文逐字稿。
 - 使用 LINE Reply API 將英文翻譯回覆至原群組。
 - 使用 Cloud Firestore 以 `groupId` 儲存群組啟用狀態，預設未啟用。
 - 只允許 `LINE_OWNER_USER_ID` 指定的 LINE 帳號在群組執行 `/啟用翻譯` 與 `/停用翻譯`，並提供 `/翻譯狀態` 查詢。
 - 預設 2,000 字元長度限制，以及不包含訊息本文或 Secret 的結構化日誌。
-- 4 個測試檔共 62 項自動化測試通過，包含私訊取得 userId、群組啟停授權、未啟用群組不處理語音、Firestore、Google Translation、Speech-to-Text 與 LINE SDK request 合約測試，TypeScript 型別檢查與正式建置通過。
+- 4 個測試檔共 60 項自動化測試通過，包含私訊取得 userId、忽略一對一語音、群組啟停授權、未啟用群組不處理語音、Firestore、Google Translation、Speech-to-Text 與 LINE SDK request 合約測試，TypeScript 型別檢查與正式建置通過。
 - 提供 `npm.cmd run verify` 部署前驗證命令，Firebase predeploy 亦會自動執行，任何檢查失敗即停止部署。
 
 ## 正式環境驗收結果
@@ -23,7 +23,7 @@
 - Cloud Firestore 預設 database 與 Function 服務帳號權限已完成。
 - `LINE_OWNER_USER_ID` 正式 Secret 已生效。
 - 授權者已確認 `/啟用翻譯`、中文翻譯與 `/停用翻譯` 流程正常。
-- 2026-09-04 語音功能程式與自動化測試已完成；正式環境仍需重新部署並執行群組及一對一語音人工驗收。
+- 2026-09-04 群組語音功能程式與自動化測試已完成；正式環境仍需重新部署並執行群組語音人工驗收。
 
 ## 外部設定清單
 
@@ -127,7 +127,7 @@ Predeploy   verification passed
 | 已啟用的非中文語音 | 傳送英文 LINE 語音 | Bot 只回覆逐字稿 |
 | 不支援的非文字 | 圖片、貼圖、影片或檔案 | Bot 不回覆 |
 | 一對一文字 | 對 OA 傳送一般中文文字 | Bot 不回覆 |
-| 一對一中文語音 | 對 OA 傳送中文 LINE 語音 | 不需啟用，Bot 回覆中文逐字稿與英文翻譯 |
+| 一對一語音 | 對 OA 傳送 LINE 語音 | Bot 不回覆，不下載音訊、不呼叫 Speech-to-Text API |
 | 超長訊息 | 超過設定的 `MAX_MESSAGE_LENGTH` | Bot 不翻譯，日誌記錄長度超限 |
 | 無效簽章 | 偽造 Webhook request | 回傳 401，不呼叫外部 API |
 | Translation API 錯誤 | 暫時停用或權限不足 | 記錄安全錯誤，Webhook 回傳 200，避免重送造成重複回覆 |

@@ -4,7 +4,6 @@ import {
   isGroupAudioMessageEvent,
   isGroupJoinEvent,
   isGroupTextMessageEvent,
-  isUserAudioMessageEvent,
   isUserTextMessageEvent,
 } from "./domain.js";
 
@@ -129,39 +128,6 @@ describe("isUserTextMessageEvent", () => {
         replyToken: "reply-token",
         source: {type: "user"},
         message: {type: "text", text: "/我的ID"},
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("isUserAudioMessageEvent", () => {
-  it("accepts LINE-hosted one-to-one audio", () => {
-    expect(
-      isUserAudioMessageEvent({
-        type: "message",
-        replyToken: "reply-token",
-        source: {type: "user", userId: "user-id"},
-        message: {
-          type: "audio",
-          id: "audio-message-id",
-          duration: 12_000,
-          contentProvider: {type: "line"},
-        },
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects external one-to-one audio", () => {
-    expect(
-      isUserAudioMessageEvent({
-        type: "message",
-        replyToken: "reply-token",
-        source: {type: "user", userId: "user-id"},
-        message: {
-          type: "audio",
-          id: "audio-message-id",
-          contentProvider: {type: "external"},
-        },
       }),
     ).toBe(false);
   });
