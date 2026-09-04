@@ -5,7 +5,9 @@ import {getApps, initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import {
   FirestoreGroupActivationStore,
+  GoogleCloudSpeechTranscriber,
   LineMessagingApiReplier,
+  LineMessagingApiContentLoader,
   GoogleCloudTranslator,
 } from "./services.js";
 import {processLineWebhook} from "./webhook.js";
@@ -14,6 +16,8 @@ const lineChannelSecret = defineSecret("LINE_CHANNEL_SECRET");
 const lineChannelAccessToken = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
 const lineOwnerUserId = defineSecret("LINE_OWNER_USER_ID");
 const maxMessageLength = defineInt("MAX_MESSAGE_LENGTH", {default: 2_000});
+const maxAudioDurationMs = defineInt("MAX_AUDIO_DURATION_MS", {default: 59_000});
+const maxAudioBytes = defineInt("MAX_AUDIO_BYTES", {default: 10_000_000});
 
 const firebaseApp = getApps()[0] ?? initializeApp();
 const groupActivationStore = new FirestoreGroupActivationStore(getFirestore(firebaseApp));
@@ -39,11 +43,17 @@ export const lineWebhook = onRequest(
       {
         channelSecret: lineChannelSecret.value(),
         translator: new GoogleCloudTranslator(projectID.value()),
+        transcriber: new GoogleCloudSpeechTranscriber(projectID.value()),
+        audioContentLoader: new LineMessagingApiContentLoader(
+          lineChannelAccessToken.value(),
+        ),
         replier: new LineMessagingApiReplier(lineChannelAccessToken.value()),
         activationStore: groupActivationStore,
         ownerUserId: lineOwnerUserId.value(),
         logger,
         maxMessageLength: maxMessageLength.value(),
+        maxAudioDurationMs: maxAudioDurationMs.value(),
+        maxAudioBytes: maxAudioBytes.value(),
       },
     );
 

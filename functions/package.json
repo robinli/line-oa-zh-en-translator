@@ -14,6 +14,7 @@
     "verify": "node scripts/verify.mjs"
   },
   "dependencies": {
+    "@google-cloud/speech": "^8.0.1",
     "@google-cloud/translate": "9.4.2",
     "@line/bot-sdk": "11.2.0",
     "firebase-admin": "14.2.0",

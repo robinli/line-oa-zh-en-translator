@@ -1,8 +1,10 @@
 import {describe, expect, it} from "vitest";
 import {
   containsChinese,
+  isGroupAudioMessageEvent,
   isGroupJoinEvent,
   isGroupTextMessageEvent,
+  isUserAudioMessageEvent,
   isUserTextMessageEvent,
 } from "./domain.js";
 
@@ -14,6 +16,55 @@ describe("containsChinese", () => {
     ["123 😀", false],
   ])("classifies %j", (text, expected) => {
     expect(containsChinese(text)).toBe(expected);
+  });
+});
+
+describe("isGroupAudioMessageEvent", () => {
+  it("accepts LINE-hosted group audio", () => {
+    expect(
+      isGroupAudioMessageEvent({
+        type: "message",
+        replyToken: "reply-token",
+        source: {type: "group", groupId: "group-id"},
+        message: {
+          type: "audio",
+          id: "audio-message-id",
+          duration: 12_000,
+          contentProvider: {type: "line"},
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    {
+      type: "message",
+      replyToken: "token",
+      source: {type: "user", userId: "user-id"},
+      message: {
+        type: "audio",
+        id: "audio-id",
+        contentProvider: {type: "line"},
+      },
+    },
+    {
+      type: "message",
+      replyToken: "token",
+      source: {type: "group", groupId: "group-id"},
+      message: {
+        type: "audio",
+        id: "audio-id",
+        contentProvider: {type: "external"},
+      },
+    },
+    {
+      type: "message",
+      replyToken: "token",
+      source: {type: "group", groupId: "group-id"},
+      message: {type: "audio", contentProvider: {type: "line"}},
+    },
+  ])("rejects unsupported audio event %#", (event) => {
+    expect(isGroupAudioMessageEvent(event)).toBe(false);
   });
 });
 
@@ -78,6 +129,39 @@ describe("isUserTextMessageEvent", () => {
         replyToken: "reply-token",
         source: {type: "user"},
         message: {type: "text", text: "/我的ID"},
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isUserAudioMessageEvent", () => {
+  it("accepts LINE-hosted one-to-one audio", () => {
+    expect(
+      isUserAudioMessageEvent({
+        type: "message",
+        replyToken: "reply-token",
+        source: {type: "user", userId: "user-id"},
+        message: {
+          type: "audio",
+          id: "audio-message-id",
+          duration: 12_000,
+          contentProvider: {type: "line"},
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects external one-to-one audio", () => {
+    expect(
+      isUserAudioMessageEvent({
+        type: "message",
+        replyToken: "reply-token",
+        source: {type: "user", userId: "user-id"},
+        message: {
+          type: "audio",
+          id: "audio-message-id",
+          contentProvider: {type: "external"},
+        },
       }),
     ).toBe(false);
   });

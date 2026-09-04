@@ -1,6 +1,6 @@
 # LINE 群組中英自動翻譯機器人
 
-LINE OA 群組翻譯：OA 被加入群組後預設不翻譯，指定授權者啟用後，才會將群組內的中文文字透過 Google Cloud Translation API 翻譯為英文，再使用 LINE Reply API 回覆原群組。
+LINE OA 中英翻譯：OA 被加入群組後預設不翻譯，指定授權者啟用後，會將群組內的中文文字翻譯為英文；群組或一對一聊天室收到語音時則先轉為文字，若逐字稿含中文，再同時回覆中文逐字稿與英文翻譯。
 
 - 正式環境狀態：✅ 已部署並完成 LINE 群組端對端驗收（2026-08-12）
 
@@ -9,6 +9,7 @@ LINE OA 群組翻譯：OA 被加入群組後預設不翻譯，指定授權者啟
 - Firebase Functions 第 2 代（Node.js 22／TypeScript）
 - LINE Messaging API
 - Google Cloud Translation API v3
+- Google Cloud Speech-to-Text API v2
 - Cloud Firestore
 - Vitest
 
@@ -21,7 +22,7 @@ npm.cmd install --prefix functions
 npm.cmd run verify
 ```
 
-`verify` 會依序執行 TypeScript 型別檢查、46 項自動化測試與正式建置；Firebase 部署前也會自動執行相同檢查，任何一步失敗即停止部署。
+`verify` 會依序執行 TypeScript 型別檢查、自動化測試與正式建置；Firebase 部署前也會自動執行相同檢查，任何一步失敗即停止部署。
 
 若要使用 Firebase Emulator，複製 `.firebaserc.example` 為 `.firebaserc` 並填入專案 ID，再複製 `functions/.secret.local.example` 為 `functions/.secret.local` 並填入測試憑證：
 
@@ -33,9 +34,9 @@ firebase.cmd emulators:start --only functions
 
 ## 雲端設定與部署
 
-1. 建立 Firebase 專案，升級 Blaze Plan，啟用 Cloud Translation API，並建立預設 Cloud Firestore database。
+1. 建立 Firebase 專案，升級 Blaze Plan，啟用 Cloud Translation API 與 Cloud Speech-to-Text API，並建立預設 Cloud Firestore database。
 2. 將 Firebase 專案 ID 寫入 `.firebaserc`。
-3. 將執行 Cloud Function 的服務帳戶授予 Translation API 與 Firestore 所需的最小權限（`roles/cloudtranslate.user` 與 `roles/datastore.user`）。
+3. 將執行 Cloud Function 的服務帳戶授予 Translation API、Speech-to-Text 與 Firestore 所需的最小權限（`roles/cloudtranslate.user`、`roles/speech.client` 與 `roles/datastore.user`）。
 4. 設定 LINE Secret：
 
    ```powershell
@@ -70,7 +71,7 @@ firebase.cmd emulators:start --only functions
 /啟用翻譯
 ```
 
-Bot 回覆「已啟用中文翻譯」後，群組內的中文或中英混合文字才會翻譯成英文。啟用狀態會儲存在 Firestore，Function 重新部署或重啟後仍然有效。
+Bot 回覆「已啟用中文翻譯」後，該群組的文字翻譯與語音轉文字才會開始執行：中文或中英混合文字會翻譯成英文；語音會先轉成逐字稿，逐字稿含中文時再附英文翻譯。啟用狀態會儲存在 Firestore，Function 重新部署或重啟後仍然有效。
 
 ### 停用群組翻譯
 
@@ -80,16 +81,20 @@ Bot 回覆「已啟用中文翻譯」後，群組內的中文或中英混合文�
 /停用翻譯
 ```
 
-Bot 回覆「已停用中文翻譯」後，該群組的中文訊息將不再觸發翻譯。各群組以 `groupId` 獨立儲存狀態，不會影響其他群組。
+Bot 回覆「已停用中文翻譯」後，該群組的文字翻譯與語音轉文字都會停止。各群組以 `groupId` 獨立儲存狀態，不會影響其他群組。
 
 ## 訊息處理規則
 
+- **群組總規則：必須先由授權者輸入 `/啟用翻譯`，文字翻譯與語音轉文字才會執行；輸入 `/停用翻譯` 後兩項功能都停止。**
 - OA 初次加入群組時預設未啟用；群組啟用狀態以 `groupId` 儲存在 Firestore。
 - 只有 `LINE_OWNER_USER_ID` 指定的帳號可輸入 `/啟用翻譯` 或 `/停用翻譯`。
 - 任何群組成員可輸入 `/翻譯狀態` 查詢當前狀態。
 - 一對一私訊 OA `/我的ID` 可取得自己的 webhook `source.userId`；此指令在群組中不生效。
+- 一對一聊天室中的 LINE 語音不需要啟用指令，會直接轉成文字；逐字稿含中文時同時回覆英文翻譯。
 - 只有已啟用群組的中文與中英混合文字會翻譯；未啟用群組與純英文不處理。
-- 除了私訊 `/我的ID` 外，圖片、貼圖、影片、音訊、檔案、系統事件及其他一對一訊息均不處理。
+- 已啟用群組中的 LINE 語音會先轉成文字；逐字稿含中文時回覆「中文逐字稿 + 英文翻譯」，不含中文時只回覆逐字稿。
+- 語音採同步辨識，預設只接受 59 秒以內且下載內容不超過 10 MB 的音訊。可在部署時以 `MAX_AUDIO_DURATION_MS` 與 `MAX_AUDIO_BYTES` 調整，但不可超過 Speech-to-Text 同步辨識的 60 秒／10 MB 上限。
+- 外部來源音訊、圖片、貼圖、影片、檔案、系統事件及其他不支援的一對一訊息均不處理。
 - 預設訊息長度上限為 2,000 個 JavaScript 字元，可在部署時以 `MAX_MESSAGE_LENGTH` 參數調整。
 - 每次請求都以未修改的 raw body 驗證 `x-line-signature`。
 - 單筆狀態讀寫、翻譯或回覆失敗時會寫入結構化日誌，Webhook 仍回傳 200，避免 LINE redelivery 造成重複回覆。
@@ -100,5 +105,5 @@ Bot 回覆「已停用中文翻譯」後，該群組的中文訊息將不再觸�
 npm.cmd run verify
 ```
 
-測試不會呼叫 LINE 或 Google Cloud，外部服務均使用 mock。
+測試不會呼叫 LINE 或 Google Cloud，外部服務均使用 mock。目前共有 62 項測試。
 

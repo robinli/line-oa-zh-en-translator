@@ -1,14 +1,26 @@
 import {
+  DEFAULT_MAX_AUDIO_BYTES,
+  DEFAULT_MAX_AUDIO_DURATION_MS,
   DEFAULT_MAX_MESSAGE_LENGTH,
   containsChinese,
+  isGroupAudioMessageEvent,
   isGroupJoinEvent,
   isGroupTextMessageEvent,
+  isUserAudioMessageEvent,
   isUserTextMessageEvent,
+  type GroupAudioMessageEvent,
   type GroupTextMessageEvent,
   type LineWebhookBody,
+  type UserAudioMessageEvent,
 } from "./domain.js";
 import {verifyLineSignature} from "./signature.js";
-import type {GroupActivationStore, LineReplier, Translator} from "./services.js";
+import type {
+  AudioContentLoader,
+  AudioTranscriber,
+  GroupActivationStore,
+  LineReplier,
+  Translator,
+} from "./services.js";
 
 export const ENABLE_TRANSLATION_COMMAND = "/啟用翻譯";
 export const DISABLE_TRANSLATION_COMMAND = "/停用翻譯";
@@ -46,11 +58,15 @@ export interface WebhookLogger {
 export interface WebhookDependencies {
   channelSecret: string;
   translator: Translator;
+  transcriber: AudioTranscriber;
+  audioContentLoader: AudioContentLoader;
   replier: LineReplier;
   activationStore: GroupActivationStore;
   ownerUserId: string;
   logger: WebhookLogger;
   maxMessageLength?: number;
+  maxAudioDurationMs?: number;
+  maxAudioBytes?: number;
 }
 
 export async function processLineWebhook(
@@ -82,6 +98,20 @@ export async function processLineWebhook(
   }
 
   const maxMessageLength = dependencies.maxMessageLength ?? DEFAULT_MAX_MESSAGE_LENGTH;
+  const maxAudioDurationMs = Math.max(
+    0,
+    Math.min(
+      dependencies.maxAudioDurationMs ?? DEFAULT_MAX_AUDIO_DURATION_MS,
+      DEFAULT_MAX_AUDIO_DURATION_MS,
+    ),
+  );
+  const maxAudioBytes = Math.max(
+    0,
+    Math.min(
+      dependencies.maxAudioBytes ?? DEFAULT_MAX_AUDIO_BYTES,
+      DEFAULT_MAX_AUDIO_BYTES,
+    ),
+  );
   let ignored = 0;
   let processed = 0;
   let failed = 0;
@@ -106,6 +136,28 @@ export async function processLineWebhook(
       continue;
     }
 
+    if (isUserAudioMessageEvent(event)) {
+      try {
+        await processAudioMessage(
+          event,
+          maxMessageLength,
+          maxAudioDurationMs,
+          maxAudioBytes,
+          dependencies,
+        );
+        processed += 1;
+      } catch (error: unknown) {
+        failed += 1;
+        logEventFailure(
+          "Failed to process a LINE one-to-one audio message.",
+          event.webhookEventId,
+          error,
+          dependencies,
+        );
+      }
+      continue;
+    }
+
     if (isGroupJoinEvent(event)) {
       try {
         const enabled = await dependencies.activationStore.isEnabled(event.source.groupId);
@@ -117,6 +169,32 @@ export async function processLineWebhook(
       } catch (error: unknown) {
         failed += 1;
         logEventFailure("Failed to initialize joined LINE group.", event.webhookEventId, error, dependencies);
+      }
+      continue;
+    }
+
+    if (isGroupAudioMessageEvent(event)) {
+      try {
+        const outcome = await processGroupAudioMessage(
+          event,
+          maxMessageLength,
+          maxAudioDurationMs,
+          maxAudioBytes,
+          dependencies,
+        );
+        if (outcome === "processed") {
+          processed += 1;
+        } else {
+          ignored += 1;
+        }
+      } catch (error: unknown) {
+        failed += 1;
+        logEventFailure(
+          "Failed to process a LINE group audio message.",
+          event.webhookEventId,
+          error,
+          dependencies,
+        );
       }
       continue;
     }
@@ -147,6 +225,85 @@ export async function processLineWebhook(
   });
 
   return {status: 200, body: {ok: true, processed, ignored, failed}};
+}
+
+async function processGroupAudioMessage(
+  event: GroupAudioMessageEvent,
+  maxMessageLength: number,
+  maxAudioDurationMs: number,
+  maxAudioBytes: number,
+  dependencies: WebhookDependencies,
+): Promise<"processed" | "ignored"> {
+  if (!(await dependencies.activationStore.isEnabled(event.source.groupId))) {
+    return "ignored";
+  }
+
+  await processAudioMessage(
+    event,
+    maxMessageLength,
+    maxAudioDurationMs,
+    maxAudioBytes,
+    dependencies,
+  );
+  return "processed";
+}
+
+async function processAudioMessage(
+  event: GroupAudioMessageEvent | UserAudioMessageEvent,
+  maxMessageLength: number,
+  maxAudioDurationMs: number,
+  maxAudioBytes: number,
+  dependencies: WebhookDependencies,
+): Promise<void> {
+  if (
+    event.message.duration !== undefined &&
+    event.message.duration > maxAudioDurationMs
+  ) {
+    dependencies.logger.warn("Ignored LINE audio that exceeds the duration limit.", {
+      webhookEventId: event.webhookEventId,
+      audioDurationMs: event.message.duration,
+      maxAudioDurationMs,
+    });
+    await dependencies.replier.replyText(
+      event.replyToken,
+      `語音長度超過 ${Math.floor(maxAudioDurationMs / 1_000)} 秒，目前無法轉為文字。`,
+    );
+    return;
+  }
+
+  const audioContent = await dependencies.audioContentLoader.getMessageContent(
+    event.message.id,
+    maxAudioBytes,
+  );
+  const transcript = await dependencies.transcriber.transcribe(audioContent);
+
+  if (transcript.length > maxMessageLength) {
+    dependencies.logger.warn("Ignored LINE audio transcript that exceeds the length limit.", {
+      webhookEventId: event.webhookEventId,
+      transcriptLength: transcript.length,
+      maxMessageLength,
+    });
+    await dependencies.replier.replyText(
+      event.replyToken,
+      "語音辨識結果過長，目前無法透過 LINE 回覆。",
+    );
+    return;
+  }
+
+  if (!containsChinese(transcript)) {
+    await dependencies.replier.replyText(
+      event.replyToken,
+      `語音轉文字：\n${transcript}`,
+    );
+    return;
+  }
+
+  const translatedText =
+    await dependencies.translator.translateTraditionalChineseToEnglish(transcript);
+  await dependencies.replier.replyText(
+    event.replyToken,
+    `中文：\n${transcript}\n\n英文：\n${translatedText}`,
+  );
 }
 
 async function processGroupTextMessage(

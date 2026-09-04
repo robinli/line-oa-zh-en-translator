@@ -1,6 +1,12 @@
 import {createHmac} from "node:crypto";
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import type {GroupActivationStore, LineReplier, Translator} from "./services.js";
+import type {
+  AudioContentLoader,
+  AudioTranscriber,
+  GroupActivationStore,
+  LineReplier,
+  Translator,
+} from "./services.js";
 import {processLineWebhook, type WebhookLogger} from "./webhook.js";
 
 const channelSecret = "test-channel-secret";
@@ -8,12 +14,18 @@ const ownerUserId = "owner-user-id";
 
 describe("processLineWebhook", () => {
   let translator: Translator;
+  let transcriber: AudioTranscriber;
+  let audioContentLoader: AudioContentLoader;
   let replier: LineReplier;
   let activationStore: GroupActivationStore;
   let logger: WebhookLogger;
 
   beforeEach(() => {
     translator = {translateTraditionalChineseToEnglish: vi.fn().mockResolvedValue("Hello")};
+    transcriber = {transcribe: vi.fn().mockResolvedValue("明天下午三點開會")};
+    audioContentLoader = {
+      getMessageContent: vi.fn().mockResolvedValue(Buffer.from("audio")),
+    };
     replier = {replyText: vi.fn().mockResolvedValue(undefined)};
     activationStore = {
       isEnabled: vi.fn().mockResolvedValue(true),
@@ -32,7 +44,16 @@ describe("processLineWebhook", () => {
     const rawBody = Buffer.from('{"events":[]}');
     const result = await processLineWebhook(
       {method: "GET", rawBody},
-      {channelSecret, translator, replier, activationStore, ownerUserId, logger},
+      {
+        channelSecret,
+        translator,
+        transcriber,
+        audioContentLoader,
+        replier,
+        activationStore,
+        ownerUserId,
+        logger,
+      },
     );
 
     expect(result).toEqual({status: 405, body: {ok: false, error: "Method not allowed"}});
@@ -57,6 +78,65 @@ describe("processLineWebhook", () => {
     expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
+  it("transcribes Chinese group audio and replies with Chinese and English", async () => {
+    const result = await callWebhook({
+      events: [groupAudioEvent()],
+    });
+
+    expect(audioContentLoader.getMessageContent).toHaveBeenCalledWith(
+      "audio-message-id",
+      10_000_000,
+    );
+    expect(transcriber.transcribe).toHaveBeenCalledWith(Buffer.from("audio"));
+    expect(translator.translateTraditionalChineseToEnglish).toHaveBeenCalledWith(
+      "明天下午三點開會",
+    );
+    expect(replier.replyText).toHaveBeenCalledWith(
+      "audio-reply-token",
+      "中文：\n明天下午三點開會\n\n英文：\nHello",
+    );
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+  });
+
+  it("replies with only the transcript when group audio is not Chinese", async () => {
+    vi.mocked(transcriber.transcribe).mockResolvedValue("Meeting at three tomorrow.");
+
+    const result = await callWebhook({events: [groupAudioEvent()]});
+
+    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
+    expect(replier.replyText).toHaveBeenCalledWith(
+      "audio-reply-token",
+      "語音轉文字：\nMeeting at three tomorrow.",
+    );
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+  });
+
+  it("does not download group audio before the group is enabled", async () => {
+    vi.mocked(activationStore.isEnabled).mockResolvedValue(false);
+
+    const result = await callWebhook({events: [groupAudioEvent()]});
+
+    expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
+    expect(transcriber.transcribe).not.toHaveBeenCalled();
+    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
+  });
+
+  it("rejects group audio above the synchronous recognition duration limit", async () => {
+    const result = await callWebhook({
+      events: [groupAudioEvent(60_000)],
+    });
+
+    expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
+    expect(transcriber.transcribe).not.toHaveBeenCalled();
+    expect(replier.replyText).toHaveBeenCalledWith(
+      "audio-reply-token",
+      expect.stringContaining("59 秒"),
+    );
+    expect(logger.warn).toHaveBeenCalledOnce();
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+  });
+
   it("returns the sender user ID only for the private ID command", async () => {
     const result = await callWebhook({events: [userTextEvent(" /我的ID ")]});
 
@@ -66,6 +146,25 @@ describe("processLineWebhook", () => {
     );
     expect(activationStore.isEnabled).not.toHaveBeenCalled();
     expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+  });
+
+  it("transcribes one-to-one Chinese audio without group activation", async () => {
+    const result = await callWebhook({events: [userAudioEvent()]});
+
+    expect(activationStore.isEnabled).not.toHaveBeenCalled();
+    expect(audioContentLoader.getMessageContent).toHaveBeenCalledWith(
+      "user-audio-message-id",
+      10_000_000,
+    );
+    expect(transcriber.transcribe).toHaveBeenCalledWith(Buffer.from("audio"));
+    expect(translator.translateTraditionalChineseToEnglish).toHaveBeenCalledWith(
+      "明天下午三點開會",
+    );
+    expect(replier.replyText).toHaveBeenCalledWith(
+      "user-audio-reply-token",
+      "中文：\n明天下午三點開會\n\n英文：\nHello",
+    );
     expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
@@ -190,7 +289,16 @@ describe("processLineWebhook", () => {
     const rawBody = Buffer.from('{"events":[]}');
     const result = await processLineWebhook(
       {method: "POST", rawBody, signature: "invalid"},
-      {channelSecret, translator, replier, activationStore, ownerUserId, logger},
+      {
+        channelSecret,
+        translator,
+        transcriber,
+        audioContentLoader,
+        replier,
+        activationStore,
+        ownerUserId,
+        logger,
+      },
     );
 
     expect(result.status).toBe(401);
@@ -201,7 +309,16 @@ describe("processLineWebhook", () => {
     const rawBody = Buffer.from("not-json");
     const result = await processLineWebhook(
       {method: "POST", rawBody, signature: sign(rawBody)},
-      {channelSecret, translator, replier, activationStore, ownerUserId, logger},
+      {
+        channelSecret,
+        translator,
+        transcriber,
+        audioContentLoader,
+        replier,
+        activationStore,
+        ownerUserId,
+        logger,
+      },
     );
 
     expect(result.status).toBe(400);
@@ -255,6 +372,8 @@ describe("processLineWebhook", () => {
       {
         channelSecret,
         translator,
+        transcriber,
+        audioContentLoader,
         replier,
         activationStore,
         ownerUserId,
@@ -289,6 +408,22 @@ function groupJoinEvent() {
   };
 }
 
+function groupAudioEvent(duration = 12_000) {
+  return {
+    type: "message",
+    replyToken: "audio-reply-token",
+    source: {type: "group", groupId: "group-id", userId: ownerUserId},
+    message: {
+      type: "audio",
+      id: "audio-message-id",
+      duration,
+      contentProvider: {type: "line"},
+    },
+    webhookEventId: "audio-webhook-event-id",
+    deliveryContext: {isRedelivery: false},
+  };
+}
+
 function userTextEvent(text: string) {
   return {
     type: "message",
@@ -296,6 +431,21 @@ function userTextEvent(text: string) {
     source: {type: "user", userId: "private-user-id"},
     message: {type: "text", id: "user-message-id", text},
     webhookEventId: "user-webhook-event-id",
+  };
+}
+
+function userAudioEvent(duration = 12_000) {
+  return {
+    type: "message",
+    replyToken: "user-audio-reply-token",
+    source: {type: "user", userId: "private-user-id"},
+    message: {
+      type: "audio",
+      id: "user-audio-message-id",
+      duration,
+      contentProvider: {type: "line"},
+    },
+    webhookEventId: "user-audio-webhook-event-id",
   };
 }
 

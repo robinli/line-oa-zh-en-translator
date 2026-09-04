@@ -1,7 +1,10 @@
+import {Readable} from "node:stream";
 import {describe, expect, it, vi} from "vitest";
 import {
   FirestoreGroupActivationStore,
+  GoogleCloudSpeechTranscriber,
   GoogleCloudTranslator,
+  LineMessagingApiContentLoader,
   LineMessagingApiReplier,
 } from "./services.js";
 
@@ -71,6 +74,86 @@ describe("GoogleCloudTranslator", () => {
     await expect(
       translator.translateTraditionalChineseToEnglish("你好"),
     ).rejects.toThrow("empty translation");
+  });
+});
+
+describe("GoogleCloudSpeechTranscriber", () => {
+  it("uses Speech-to-Text v2 with automatic decoding and Chinese/English detection", async () => {
+    const recognize = vi.fn().mockResolvedValue([
+      {
+        results: [
+          {alternatives: [{transcript: " 明天下午三點開會。 "}]},
+          {alternatives: [{transcript: "請準時出席。"}]},
+        ],
+      },
+    ]);
+    const transcriber = new GoogleCloudSpeechTranscriber("test-project", {recognize});
+    const audioContent = Buffer.from("audio");
+
+    await expect(transcriber.transcribe(audioContent)).resolves.toBe(
+      "明天下午三點開會。\n請準時出席。",
+    );
+    expect(recognize).toHaveBeenCalledWith({
+      recognizer: "projects/test-project/locations/global/recognizers/_",
+      config: {
+        autoDecodingConfig: {},
+        languageCodes: ["cmn-Hant-TW", "en-US"],
+        model: "long",
+        features: {
+          enableAutomaticPunctuation: true,
+        },
+      },
+      content: audioContent,
+    });
+  });
+
+  it("rejects an empty transcription response", async () => {
+    const client = {recognize: vi.fn().mockResolvedValue([{results: []}])};
+    const transcriber = new GoogleCloudSpeechTranscriber("test-project", client);
+
+    await expect(transcriber.transcribe(Buffer.from("audio"))).rejects.toThrow(
+      "empty transcript",
+    );
+  });
+});
+
+describe("LineMessagingApiContentLoader", () => {
+  it("downloads and combines streamed LINE message content", async () => {
+    const getMessageContent = vi.fn().mockResolvedValue(
+      Readable.from([Buffer.from("first"), Buffer.from("second")]),
+    );
+    const loader = new LineMessagingApiContentLoader("unused-test-token", {
+      getMessageContent,
+    });
+
+    await expect(loader.getMessageContent("message-id", 100)).resolves.toEqual(
+      Buffer.from("firstsecond"),
+    );
+    expect(getMessageContent).toHaveBeenCalledWith("message-id");
+  });
+
+  it("rejects downloaded LINE message content above the byte limit", async () => {
+    const getMessageContent = vi.fn().mockResolvedValue(
+      Readable.from([Buffer.from("123"), Buffer.from("456")]),
+    );
+    const loader = new LineMessagingApiContentLoader("unused-test-token", {
+      getMessageContent,
+    });
+
+    await expect(loader.getMessageContent("message-id", 5)).rejects.toThrow(
+      "5-byte limit",
+    );
+  });
+
+  it("rejects empty LINE message content", async () => {
+    const getMessageContent = vi.fn().mockResolvedValue(Readable.from([]));
+    const loader = new LineMessagingApiContentLoader("unused-test-token", {
+      getMessageContent,
+    });
+
+    await expect(loader.getMessageContent("message-id", 100)).rejects.toThrow(
+      "empty audio content",
+    );
   });
 });
 

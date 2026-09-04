@@ -2,6 +2,14 @@ export interface Translator {
   translateTraditionalChineseToEnglish(text: string): Promise<string>;
 }
 
+export interface AudioTranscriber {
+  transcribe(audioContent: Buffer): Promise<string>;
+}
+
+export interface AudioContentLoader {
+  getMessageContent(messageId: string, maxBytes: number): Promise<Buffer>;
+}
+
 export interface LineReplier {
   replyText(replyToken: string, text: string): Promise<void>;
 }
@@ -72,6 +80,42 @@ interface MessagingClient {
   }): Promise<unknown>;
 }
 
+interface MessageContentStream extends AsyncIterable<unknown> {
+  destroy?(error?: Error): unknown;
+}
+
+interface MessagingContentClient {
+  getMessageContent(messageId: string): Promise<MessageContentStream>;
+}
+
+interface SpeechRecognitionRequest {
+  recognizer: string;
+  config: {
+    autoDecodingConfig: Record<string, never>;
+    languageCodes: string[];
+    model: string;
+    features: {
+      enableAutomaticPunctuation: boolean;
+    };
+  };
+  content: Buffer;
+}
+
+interface SpeechRecognitionResponse {
+  results?: Array<{
+    alternatives?: Array<{
+      transcript?: string | null;
+    }> | null;
+  }> | null;
+}
+
+interface SpeechRecognitionClient {
+  recognize(request: SpeechRecognitionRequest): Promise<[
+    SpeechRecognitionResponse,
+    ...unknown[],
+  ]>;
+}
+
 export class GoogleCloudTranslator implements Translator {
   private client: TranslationClient | undefined;
 
@@ -104,6 +148,98 @@ export class GoogleCloudTranslator implements Translator {
     if (!this.client) {
       const {v3} = await import("@google-cloud/translate");
       this.client = new v3.TranslationServiceClient();
+    }
+
+    return this.client;
+  }
+}
+
+export class GoogleCloudSpeechTranscriber implements AudioTranscriber {
+  private client: SpeechRecognitionClient | undefined;
+
+  public constructor(
+    private readonly projectId: string,
+    client?: SpeechRecognitionClient,
+  ) {
+    this.client = client;
+  }
+
+  public async transcribe(audioContent: Buffer): Promise<string> {
+    const client = await this.getClient();
+    const [response] = await client.recognize({
+      recognizer: `projects/${this.projectId}/locations/global/recognizers/_`,
+      config: {
+        autoDecodingConfig: {},
+        languageCodes: ["cmn-Hant-TW", "en-US"],
+        model: "long",
+        features: {
+          enableAutomaticPunctuation: true,
+        },
+      },
+      content: audioContent,
+    });
+
+    const transcript = (response.results ?? [])
+      .map((result) => result.alternatives?.[0]?.transcript?.trim())
+      .filter((part): part is string => Boolean(part))
+      .join("\n");
+
+    if (!transcript) {
+      throw new Error("Google Cloud Speech-to-Text API returned an empty transcript.");
+    }
+
+    return transcript;
+  }
+
+  private async getClient(): Promise<SpeechRecognitionClient> {
+    if (!this.client) {
+      const {v2} = await import("@google-cloud/speech");
+      this.client = new v2.SpeechClient();
+    }
+
+    return this.client;
+  }
+}
+
+export class LineMessagingApiContentLoader implements AudioContentLoader {
+  private client: MessagingContentClient | undefined;
+
+  public constructor(
+    private readonly channelAccessToken: string,
+    client?: MessagingContentClient,
+  ) {
+    this.client = client;
+  }
+
+  public async getMessageContent(messageId: string, maxBytes: number): Promise<Buffer> {
+    const client = await this.getClient();
+    const stream = await client.getMessageContent(messageId);
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+
+    for await (const chunk of stream) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      totalBytes += buffer.length;
+      if (totalBytes > maxBytes) {
+        stream.destroy?.();
+        throw new Error(`LINE audio content exceeds the ${maxBytes}-byte limit.`);
+      }
+      chunks.push(buffer);
+    }
+
+    if (totalBytes === 0) {
+      throw new Error("LINE Messaging API returned empty audio content.");
+    }
+
+    return Buffer.concat(chunks, totalBytes);
+  }
+
+  private async getClient(): Promise<MessagingContentClient> {
+    if (!this.client) {
+      const {messagingApi} = await import("@line/bot-sdk");
+      this.client = new messagingApi.MessagingApiBlobClient({
+        channelAccessToken: this.channelAccessToken,
+      });
     }
 
     return this.client;

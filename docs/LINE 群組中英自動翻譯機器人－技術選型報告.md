@@ -1,12 +1,14 @@
 # LINE 群組中英自動翻譯機器人－技術選型報告
 
-**文件日期：2026 年 8 月 12 日**
+**文件日期：2026 年 8 月 12 日；最後更新：2026 年 9 月 4 日**
+
+> 2026-09-04 更新：目前實作已加入 Firestore 群組啟停狀態與 Speech-to-Text 語音辨識。本報告以下內容以現行版本為準：群組必須先由授權者輸入 `/啟用翻譯`，文字翻譯與語音轉文字才會執行；`/停用翻譯` 會同時停止兩項功能。一對一 LINE 語音不需要群組啟用狀態。
 
 ## 一、專案目標
 
 建立一套 LINE 群組自動翻譯服務。
 
-當 LINE Official Account（以下簡稱 LINE OA）加入指定 LINE 群組後，群組成員輸入中文文字時，系統自動將內容翻譯為英文，並由 LINE OA 將英文翻譯結果回覆至原群組。
+當 LINE Official Account（以下簡稱 LINE OA）加入指定 LINE 群組後，由授權者啟用該群組。啟用後，中文文字會翻譯為英文，語音會轉成文字；中文語音同時回覆中文逐字稿與英文翻譯。
 
 預期使用方式：
 
@@ -23,11 +25,12 @@ We have a meeting with the client at 3 PM tomorrow.
 - LINE OA 可加入群組
 - 接收群組內成員文字訊息
 - 中文自動翻譯為英文
+- 接收群組及一對一 LINE 語音並轉成文字
 - 翻譯完成後回覆至同一群組
 - 24/7 可使用
-- 不需使用者輸入特殊指令
+- 群組由指定授權者使用 `/啟用翻譯` 與 `/停用翻譯` 控制
 - 初期不需要登入系統
-- 初期不需要資料庫
+- 使用 Firestore 保存各群組的啟用狀態
 - 以低維護成本、低月費為主要考量
 
 ---
@@ -36,14 +39,14 @@ We have a meeting with the client at 3 PM tomorrow.
 
 ## 🎯 主推方案
 
-**LINE Official Account + LINE Messaging API + Firebase Functions + Google Cloud Translation API**
+**LINE Official Account + LINE Messaging API + Firebase Functions + Cloud Firestore + Google Cloud Translation API + Speech-to-Text API**
 
 整體技術架構：
 
 ```text
-LINE 群組
+LINE 群組／一對一聊天室
    │
-   │ 中文訊息
+   │ 文字或語音
    ▼
 LINE Official Account
    │
@@ -52,15 +55,10 @@ LINE Official Account
 Firebase Functions
    │
    ├─ 驗證 LINE Webhook
-   ├─ 判斷訊息類型
-   ├─ 判斷是否需要翻譯
-   │
-   ▼
-Google Cloud Translation API
-   │
-   │ 中文 → 英文
-   ▼
-Firebase Functions
+   ├─ 驗證群組啟用狀態
+   ├─ 判斷文字或語音
+   ├─ 語音：LINE Content API → Speech-to-Text
+   ├─ 中文：Translation API
    │
    │ LINE Reply API
    ▼
@@ -108,11 +106,11 @@ Firebase Functions 負責整個系統的後端 Webhook。
 
 1. 接收 LINE Webhook
 2. 驗證 LINE 請求
-3. 取得群組訊息文字
-4. 過濾不需處理的訊息
-5. 呼叫 Google Cloud Translation API
-6. 取得英文翻譯
-7. 呼叫 LINE Messaging API 回覆英文
+3. 讀取 Firestore 群組啟用狀態
+4. 取得文字或從 LINE Content API 下載語音
+5. 呼叫 Google Cloud Speech-to-Text 或 Translation API
+6. 組合逐字稿與英文翻譯
+7. 呼叫 LINE Messaging API 回覆結果
 
 Firebase Functions 適合此專案的主要原因，是此服務並不需要長時間執行單一運算工作，而是大量非常短的 HTTP Webhook 請求。
 
@@ -138,7 +136,7 @@ Firebase Functions 適合此專案的主要原因，是此服務並不需要長�
 
 ---
 
-# 五、Google Cloud Translation 選型
+# 五、Google Cloud Translation 與 Speech-to-Text 選型
 
 本專案只需要：
 
@@ -157,6 +155,8 @@ Firebase Functions 適合此專案的主要原因，是此服務並不需要長�
 因此優先採用專門處理語言翻譯的 **Google Cloud Translation API**，而不是使用大型語言模型。
 
 Google Cloud Translation API 適合大量短文字即時翻譯，也符合 LINE 群組訊息的使用情境。
+
+語音使用 Google Cloud Speech-to-Text API v2。此 API 可自動解碼 LINE 常見的 MP3／M4A 音訊，並以繁體中文與英文作為候選辨識語言；辨識出的逐字稿若含中文，再交由 Translation API 翻譯。
 
 ---
 
@@ -183,7 +183,8 @@ Google Cloud Translation API 適合大量短文字即時翻譯，也符合 LINE 
 | LINE OA / Messaging API | 依 LINE OA 使用方案 |
 | Firebase Functions | 約 US$0 起 |
 | Google Translation | 約 US$0 起 |
-| Firestore | 不使用 |
+| Google Speech-to-Text | 依實際辨識秒數計價 |
+| Firestore | 低用量，保存群組啟用狀態 |
 | Firebase Storage | 不使用 |
 | Hosting | 不需要 |
 | **後端＋翻譯合計** | **約 US$0 起** |
@@ -194,36 +195,21 @@ Google Cloud Translation API 適合大量短文字即時翻譯，也符合 LINE 
 
 # 七、訊息處理規則
 
-建議第一版採取最單純的處理邏輯。
+現行版本採取以下處理邏輯。
 
 ```text
 收到 LINE Webhook
         │
-        ▼
-是不是文字訊息？
-   │
-   ├─ 否 → 忽略
-   │
-   ▼
-是
+        ├─ 群組 → 是否已啟用？
+        │            ├─ 否 → 文字與語音都忽略
+        │            └─ 是 → 處理中文文字或 LINE 語音
         │
-        ▼
-是否包含中文？
-   │
-   ├─ 否 → 忽略
-   │
-   ▼
-是
-        │
-        ▼
-Google Translation
-中文 → 英文
-        │
-        ▼
-LINE Reply API
-        │
-        ▼
-回覆英文
+        └─ 一對一 → 處理 /我的ID 或 LINE 語音
+
+文字含中文 → Translation API → 回覆英文
+語音 → LINE Content API → Speech-to-Text
+     ├─ 逐字稿含中文 → 回覆中文逐字稿＋英文翻譯
+     └─ 不含中文 → 只回覆逐字稿
 ```
 
 建議規則：
@@ -236,7 +222,10 @@ LINE Reply API
 | 圖片 | 不處理 |
 | 貼圖 | 不處理 |
 | 影片 | 不處理 |
-| 音訊 | 不處理 |
+| 已啟用群組的 LINE 音訊 | 轉成文字；中文逐字稿附英文翻譯 |
+| 未啟用群組的 LINE 音訊 | 不下載、不辨識、不回覆 |
+| 一對一 LINE 音訊 | 不需啟用，直接轉成文字 |
+| 外部來源音訊 | 不處理 |
 | 檔案 | 第一版不處理 |
 | LINE 系統事件 | 不處理 |
 
@@ -279,6 +268,7 @@ Allow bot to join group chats
 - 設定 Google Cloud Billing Budget
 - 設定 Billing Alert
 - 限制 Translation API 使用權限
+- 限制 Speech-to-Text API 使用權限
 - 對 Secret 採最小權限原則
 
 ---
@@ -290,8 +280,9 @@ Allow bot to join group chats
 | 群組已有其他 LINE OA | 翻譯 Bot 可能無法加入 | 上線前先確認群組 |
 | Firebase Blaze 需 Billing | 需要綁定付款帳號 | 設 Budget Alert |
 | Translation API 被大量呼叫 | 可能產生費用 | 僅翻中文＋限制訊息長度 |
+| Speech-to-Text API 被大量呼叫 | 可能產生費用 | 群組需先啟用，並限制 59 秒／10 MB |
 | 圖片內中文 | 無法翻譯 | 第一版不處理 |
-| 語音訊息 | 無法翻譯 | 第一版不處理 |
+| 超長或外部來源語音 | 無法同步辨識 | 只接受 LINE 託管、59 秒內且不超過 10 MB 的音訊 |
 | 專有名詞翻錯 | 商務內容可能不準確 | 建立 glossary / 規則 |
 | Firebase 除錯 | 初期部署稍麻煩 | 建立 logging 與測試環境 |
 
@@ -301,18 +292,15 @@ Allow bot to join group chats
 
 ## ✅ 建議採用
 
-**LINE Official Account  
-+ LINE Messaging API  
-+ Firebase Functions  
-+ Google Cloud Translation API**
+**LINE Official Account + LINE Messaging API + Firebase Functions + Cloud Firestore + Google Cloud Translation API + Google Cloud Speech-to-Text API**
 
 主要原因：
 
 1. 完整符合 LINE 群組即時翻譯需求。
 2. 不需要自行維護常駐 Server。
 3. 小型使用情境具有很低的基礎設施成本。
-4. Google Translation 專門處理語言翻譯，需求單純且穩定。
-5. 不需要資料庫即可完成 MVP。
+4. Google Translation 與 Speech-to-Text 分別處理文字翻譯與語音辨識，職責清楚。
+5. Firestore 只保存群組啟用狀態，不保存訊息、音訊或翻譯結果。
 6. 系統架構單純，後續維護負擔低。
 7. Firebase Functions 初次設定雖有一定麻煩程度，但後續維護需求低。
 8. 綜合功能、成本與穩定性後，是本專案合理的技術組合。
