@@ -3,6 +3,9 @@ export const DEFAULT_MAX_AUDIO_DURATION_MS = 59_000;
 export const DEFAULT_MAX_AUDIO_BYTES = 10_000_000;
 
 const CHINESE_CHARACTER_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+const LATIN_CHARACTER_PATTERN = /\p{Script=Latin}/u;
+
+export type TranslationMode = "zh-to-en" | "en-to-zh" | "zh-en" | "zh-vi";
 
 export interface LineWebhookBody {
   destination?: string;
@@ -75,8 +78,36 @@ export interface UserTextMessageEvent {
   webhookEventId?: string;
 }
 
+export interface UserAudioMessageEvent {
+  type: "message";
+  replyToken: string;
+  source: {
+    type: "user";
+    userId: string;
+  };
+  message: {
+    type: "audio";
+    id: string;
+    duration?: number;
+    contentProvider: {
+      type: "line";
+    };
+  };
+  webhookEventId?: string;
+  deliveryContext?: {
+    isRedelivery?: boolean;
+  };
+}
+
+export type ChatTextMessageEvent = GroupTextMessageEvent | UserTextMessageEvent;
+export type ChatAudioMessageEvent = GroupAudioMessageEvent | UserAudioMessageEvent;
+
 export function containsChinese(text: string): boolean {
   return CHINESE_CHARACTER_PATTERN.test(text);
+}
+
+export function containsLatin(text: string): boolean {
+  return LATIN_CHARACTER_PATTERN.test(text);
 }
 
 export function isGroupTextMessageEvent(event: unknown): event is GroupTextMessageEvent {
@@ -150,6 +181,35 @@ export function isUserTextMessageEvent(event: unknown): event is UserTextMessage
     message.type === "text" &&
     typeof message.text === "string"
   );
+}
+
+export function isUserAudioMessageEvent(event: unknown): event is UserAudioMessageEvent {
+  if (!isRecord(event) || event.type !== "message") {
+    return false;
+  }
+
+  const source = event.source;
+  const message = event.message;
+  return (
+    typeof event.replyToken === "string" &&
+    isRecord(source) &&
+    source.type === "user" &&
+    typeof source.userId === "string" &&
+    isRecord(message) &&
+    message.type === "audio" &&
+    typeof message.id === "string" &&
+    (message.duration === undefined || typeof message.duration === "number") &&
+    isRecord(message.contentProvider) &&
+    message.contentProvider.type === "line"
+  );
+}
+
+export function isChatTextMessageEvent(event: unknown): event is ChatTextMessageEvent {
+  return isGroupTextMessageEvent(event) || isUserTextMessageEvent(event);
+}
+
+export function isChatAudioMessageEvent(event: unknown): event is ChatAudioMessageEvent {
+  return isGroupAudioMessageEvent(event) || isUserAudioMessageEvent(event);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

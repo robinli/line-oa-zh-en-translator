@@ -1,103 +1,152 @@
 import {Readable} from "node:stream";
 import {describe, expect, it, vi} from "vitest";
 import {
-  FirestoreGroupActivationStore,
+  FirestoreConversationSettingsStore,
   GoogleCloudSpeechTranscriber,
   GoogleCloudTranslator,
   LineMessagingApiContentLoader,
   LineMessagingApiReplier,
 } from "./services.js";
 
-describe("FirestoreGroupActivationStore", () => {
-  it.each([
-    [true, true],
-    [false, false],
-    [undefined, false],
-  ])("maps the stored value %s to %s", async (storedValue, expected) => {
-    const get = vi.fn().mockResolvedValue({get: vi.fn().mockReturnValue(storedValue)});
-    const doc = vi.fn().mockReturnValue({get, set: vi.fn()});
-    const collection = vi.fn().mockReturnValue({doc});
-    const store = new FirestoreGroupActivationStore({collection});
 
-    await expect(store.isEnabled("group-id")).resolves.toBe(expected);
-    expect(collection).toHaveBeenCalledWith("lineTranslationGroups");
+describe("FirestoreConversationSettingsStore", () => {
+  function setup(values: Record<string, unknown> = {}) {
+    const set = vi.fn().mockImplementation(async (updates: Record<string, unknown>) => {
+      Object.assign(values, updates);
+    });
+    const get = vi.fn().mockResolvedValue({get: (field: string) => values[field]});
+    const doc = vi.fn().mockReturnValue({get, set});
+    const collection = vi.fn().mockReturnValue({doc});
+    return {store: new FirestoreConversationSettingsStore({collection}), set, doc};
+  }
+
+  it.each(["zh-to-en", "en-to-zh", "zh-en", "zh-vi"] as const)("reads and writes %s", async (mode) => {
+    const {store, set, doc} = setup({enabled: true, translationMode: mode});
+    await expect(store.getSettings("group-id")).resolves.toEqual({
+      textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: mode,
+    });
+    await store.setModeAndEnabled("group-id", mode, "owner-id");
+    expect(set).toHaveBeenCalledWith({
+      textTranslationEnabled: true, translationMode: mode,
+      changedBy: "owner-id", changedAt: expect.any(Date),
+    }, {merge: true});
     expect(doc).toHaveBeenCalledWith("group-id");
   });
 
-  it("stores the activation state and audit fields", async () => {
-    const set = vi.fn().mockResolvedValue(undefined);
-    const doc = vi.fn().mockReturnValue({get: vi.fn(), set});
-    const store = new FirestoreGroupActivationStore({
-      collection: vi.fn().mockReturnValue({doc}),
+  it.each([
+    [{}, false, false],
+    [{enabled: true}, true, true],
+    [{enabled: false}, false, false],
+    [{enabled: true, textTranslationEnabled: false}, false, true],
+    [{enabled: true, audioTranscriptionEnabled: false}, true, false],
+    [{enabled: false, textTranslationEnabled: true, audioTranscriptionEnabled: true}, true, true],
+    [{enabled: true, textTranslationEnabled: "false"}, true, true],
+  ] as const)("reads legacy and explicit flags %j", async (values, text, audio) => {
+    const {store} = setup({...values});
+    await expect(store.getSettings("group-id")).resolves.toEqual({
+      textTranslationEnabled: text, audioTranscriptionEnabled: audio, translationMode: "zh-en",
     });
+  });
 
-    await store.setEnabled("group-id", true, "owner-user-id");
+  it.each([undefined, "invalid"])("defaults unknown mode %s to Chinese-English", async (mode) => {
+    const {store} = setup({translationMode: mode});
+    expect((await store.getSettings("group-id")).translationMode).toBe("zh-en");
+  });
 
-    expect(set).toHaveBeenCalledWith(
-      {
-        enabled: true,
-        changedBy: "owner-user-id",
-        changedAt: expect.any(Date),
-      },
-      {merge: true},
-    );
+  it("updates text and mode without altering legacy audio state", async () => {
+    const {store, set} = setup({enabled: true, translationMode: "zh-vi"});
+    await store.setTextTranslationEnabled("group-id", false, "owner-id");
+    await expect(store.getSettings("group-id")).resolves.toEqual({
+      textTranslationEnabled: false, audioTranscriptionEnabled: true, translationMode: "zh-vi",
+    });
+    expect(set).toHaveBeenLastCalledWith({
+      textTranslationEnabled: false, changedBy: "owner-id", changedAt: expect.any(Date),
+    }, {merge: true});
+    await store.setModeAndEnabled("group-id", "zh-to-en", "owner-id");
+    await expect(store.getSettings("group-id")).resolves.toEqual({
+      textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: "zh-to-en",
+    });
+  });
+
+  it("updates audio independently and preserves explicit false when changing mode", async () => {
+    const {store, set} = setup({enabled: true, translationMode: "zh-en"});
+    await store.setAudioTranscriptionEnabled("group-id", false, "owner-id");
+    expect(set).toHaveBeenLastCalledWith({
+      audioTranscriptionEnabled: false, changedBy: "owner-id", changedAt: expect.any(Date),
+    }, {merge: true});
+    await store.setModeAndEnabled("group-id", "en-to-zh", "owner-id");
+    await expect(store.getSettings("group-id")).resolves.toEqual({
+      textTranslationEnabled: true, audioTranscriptionEnabled: false, translationMode: "en-to-zh",
+    });
+  });
+
+  it("does not enable audio in a new conversation when choosing a mode", async () => {
+    const {store, doc} = setup();
+    await store.setModeAndEnabled("user:private-id", "zh-to-en", "private-id");
+    await expect(store.getSettings("user:private-id")).resolves.toEqual({
+      textTranslationEnabled: true, audioTranscriptionEnabled: false, translationMode: "zh-to-en",
+    });
+    expect(doc).toHaveBeenCalledWith("user:private-id");
   });
 });
 
 describe("GoogleCloudTranslator", () => {
-  it("calls Translation API v3 with the expected language pair", async () => {
+  it("calls Translation API v3 with the requested language pair", async () => {
     const translateText = vi.fn().mockResolvedValue([
-      {translations: [{translatedText: " Meeting tomorrow. "}]},
+      {translations: [{translatedText: " Xin chào. "}]},
     ]);
-    const client = {translateText};
-    const translator = new GoogleCloudTranslator(
-      "test-project",
-      client,
-    );
+    const translator = new GoogleCloudTranslator("test-project", {translateText});
 
     await expect(
-      translator.translateTraditionalChineseToEnglish("明天開會。"),
-    ).resolves.toBe("Meeting tomorrow.");
+      translator.translate("你好。", "zh-TW", "vi"),
+    ).resolves.toBe("Xin chào.");
     expect(translateText).toHaveBeenCalledWith({
       parent: "projects/test-project/locations/global",
-      contents: ["明天開會。"],
+      contents: ["你好。"],
       mimeType: "text/plain",
       sourceLanguageCode: "zh-TW",
-      targetLanguageCode: "en",
+      targetLanguageCode: "vi",
     });
   });
 
   it("rejects an empty translation response", async () => {
-    const client = {translateText: vi.fn().mockResolvedValue([{translations: []}])};
-    const translator = new GoogleCloudTranslator("test-project", client);
+    const translator = new GoogleCloudTranslator("test-project", {
+      translateText: vi.fn().mockResolvedValue([{translations: []}]),
+    });
 
     await expect(
-      translator.translateTraditionalChineseToEnglish("你好"),
+      translator.translate("你好", "zh-TW", "en"),
     ).rejects.toThrow("empty translation");
   });
 });
 
 describe("GoogleCloudSpeechTranscriber", () => {
-  it("uses Speech-to-Text v2 with automatic decoding and Chinese/English detection", async () => {
+  it("uses the requested recognition languages and returns the detected language", async () => {
     const recognize = vi.fn().mockResolvedValue([
       {
         results: [
-          {alternatives: [{transcript: " 明天下午三點開會。 "}]},
-          {alternatives: [{transcript: "請準時出席。"}]},
+          {
+            languageCode: "vi-VN",
+            alternatives: [{transcript: " Xin chào. "}],
+          },
+          {alternatives: [{transcript: "Hẹn gặp lại."}]},
         ],
       },
     ]);
     const transcriber = new GoogleCloudSpeechTranscriber("test-project", {recognize});
     const audioContent = Buffer.from("audio");
 
-    await expect(transcriber.transcribe(audioContent)).resolves.toBe(
-      "明天下午三點開會。\n請準時出席。",
-    );
+    await expect(
+      transcriber.transcribe(audioContent, ["cmn-Hant-TW", "vi-VN"]),
+    ).resolves.toEqual({
+      text: "Xin chào.\nHẹn gặp lại.",
+      languageCode: "vi-VN",
+    });
     expect(recognize).toHaveBeenCalledWith({
       recognizer: "projects/test-project/locations/global/recognizers/_",
       config: {
         autoDecodingConfig: {},
-        languageCodes: ["cmn-Hant-TW", "en-US"],
+        languageCodes: ["cmn-Hant-TW", "vi-VN"],
         model: "long",
         features: {
           enableAutomaticPunctuation: true,
@@ -108,12 +157,13 @@ describe("GoogleCloudSpeechTranscriber", () => {
   });
 
   it("rejects an empty transcription response", async () => {
-    const client = {recognize: vi.fn().mockResolvedValue([{results: []}])};
-    const transcriber = new GoogleCloudSpeechTranscriber("test-project", client);
+    const transcriber = new GoogleCloudSpeechTranscriber("test-project", {
+      recognize: vi.fn().mockResolvedValue([{results: []}]),
+    });
 
-    await expect(transcriber.transcribe(Buffer.from("audio"))).rejects.toThrow(
-      "empty transcript",
-    );
+    await expect(
+      transcriber.transcribe(Buffer.from("audio"), ["cmn-Hant-TW", "en-US"]),
+    ).rejects.toThrow("empty transcript");
   });
 });
 
@@ -146,9 +196,8 @@ describe("LineMessagingApiContentLoader", () => {
   });
 
   it("rejects empty LINE message content", async () => {
-    const getMessageContent = vi.fn().mockResolvedValue(Readable.from([]));
     const loader = new LineMessagingApiContentLoader("unused-test-token", {
-      getMessageContent,
+      getMessageContent: vi.fn().mockResolvedValue(Readable.from([])),
     });
 
     await expect(loader.getMessageContent("message-id", 100)).rejects.toThrow(
@@ -160,8 +209,7 @@ describe("LineMessagingApiContentLoader", () => {
 describe("LineMessagingApiReplier", () => {
   it("sends one text message with the original reply token", async () => {
     const replyMessage = vi.fn().mockResolvedValue({});
-    const client = {replyMessage};
-    const replier = new LineMessagingApiReplier("unused-test-token", client);
+    const replier = new LineMessagingApiReplier("unused-test-token", {replyMessage});
 
     await replier.replyText("reply-token", "Hello");
 
@@ -171,4 +219,3 @@ describe("LineMessagingApiReplier", () => {
     });
   });
 });
-
