@@ -4,7 +4,7 @@ import {onRequest} from "firebase-functions/v2/https";
 import {getApps, initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import {
-  FirestoreGroupActivationStore,
+  FirestoreConversationSettingsStore,
   GoogleCloudSpeechTranscriber,
   LineMessagingApiReplier,
   LineMessagingApiContentLoader,
@@ -20,7 +20,7 @@ const maxAudioDurationMs = defineInt("MAX_AUDIO_DURATION_MS", {default: 59_000})
 const maxAudioBytes = defineInt("MAX_AUDIO_BYTES", {default: 10_000_000});
 
 const firebaseApp = getApps()[0] ?? initializeApp();
-const groupActivationStore = new FirestoreGroupActivationStore(getFirestore(firebaseApp));
+const conversationSettingsStore = new FirestoreConversationSettingsStore(getFirestore(firebaseApp));
 
 export const lineWebhook = onRequest(
   {
@@ -48,7 +48,7 @@ export const lineWebhook = onRequest(
           lineChannelAccessToken.value(),
         ),
         replier: new LineMessagingApiReplier(lineChannelAccessToken.value()),
-        activationStore: groupActivationStore,
+        settingsStore: conversationSettingsStore,
         ownerUserId: lineOwnerUserId.value(),
         logger,
         maxMessageLength: maxMessageLength.value(),

@@ -1,9 +1,11 @@
 import {describe, expect, it} from "vitest";
 import {
   containsChinese,
+  containsLatin,
   isGroupAudioMessageEvent,
   isGroupJoinEvent,
   isGroupTextMessageEvent,
+  isUserAudioMessageEvent,
   isUserTextMessageEvent,
 } from "./domain.js";
 
@@ -15,6 +17,17 @@ describe("containsChinese", () => {
     ["123 😀", false],
   ])("classifies %j", (text, expected) => {
     expect(containsChinese(text)).toBe(expected);
+  });
+});
+
+describe("containsLatin", () => {
+  it.each([
+    ["English only", true],
+    ["Xin chào Việt Nam", true],
+    ["只有中文", false],
+    ["123 😀", false],
+  ])("classifies %j", (text, expected) => {
+    expect(containsLatin(text)).toBe(expected);
   });
 });
 
@@ -130,6 +143,24 @@ describe("isUserTextMessageEvent", () => {
         message: {type: "text", text: "/我的ID"},
       }),
     ).toBe(false);
+  });
+});
+
+describe("isUserAudioMessageEvent", () => {
+  it("accepts LINE-hosted one-to-one audio", () => {
+    expect(
+      isUserAudioMessageEvent({
+        type: "message",
+        replyToken: "reply-token",
+        source: {type: "user", userId: "user-id"},
+        message: {
+          type: "audio",
+          id: "audio-id",
+          duration: 12_000,
+          contentProvider: {type: "line"},
+        },
+      }),
+    ).toBe(true);
   });
 });
 

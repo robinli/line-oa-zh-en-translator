@@ -3,7 +3,7 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import type {
   AudioContentLoader,
   AudioTranscriber,
-  GroupActivationStore,
+  ConversationSettingsStore,
   LineReplier,
   Translator,
 } from "./services.js";
@@ -17,361 +17,524 @@ describe("processLineWebhook", () => {
   let transcriber: AudioTranscriber;
   let audioContentLoader: AudioContentLoader;
   let replier: LineReplier;
-  let activationStore: GroupActivationStore;
+  let settingsStore: ConversationSettingsStore;
   let logger: WebhookLogger;
 
   beforeEach(() => {
-    translator = {translateTraditionalChineseToEnglish: vi.fn().mockResolvedValue("Hello")};
-    transcriber = {transcribe: vi.fn().mockResolvedValue("明天下午三點開會")};
+    translator = {translate: vi.fn().mockResolvedValue("translated")};
+    transcriber = {
+      transcribe: vi.fn().mockResolvedValue({
+        text: "明天下午三點開會",
+        languageCode: "cmn-Hant-TW",
+      }),
+    };
     audioContentLoader = {
       getMessageContent: vi.fn().mockResolvedValue(Buffer.from("audio")),
     };
     replier = {replyText: vi.fn().mockResolvedValue(undefined)};
-    activationStore = {
-      isEnabled: vi.fn().mockResolvedValue(true),
-      setEnabled: vi.fn().mockResolvedValue(undefined),
+    settingsStore = {
+      getSettings: vi.fn().mockResolvedValue({
+        textTranslationEnabled: true,
+        audioTranscriptionEnabled: true,
+        translationMode: "zh-en",
+      }),
+      setAudioTranscriptionEnabled: vi.fn().mockResolvedValue(undefined),
+      setTextTranslationEnabled: vi.fn().mockResolvedValue(undefined),
+      setModeAndEnabled: vi.fn().mockResolvedValue(undefined),
     };
     logger = {info: vi.fn(), warn: vi.fn(), error: vi.fn()};
+  });
+
+
+  it.each([
+    ["zh-to-en", "你好", "zh-TW", "en"],
+    ["zh-to-en", "Meeting 明天下午三點", "zh-TW", "en"],
+    ["en-to-zh", "Hello", "en", "zh-TW"],
+    ["zh-en", "Meeting 明天下午三點", "zh-TW", "en"],
+    ["zh-vi", "Meeting 明天下午三點", "zh-TW", "vi"],
+  ] as const)("routes %s text %s", async (mode, text, source, target) => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true, audioTranscriptionEnabled: false, translationMode: mode,
+    });
+    await callWebhook({events: [groupTextEvent(text)]});
+    expect(translator.translate).toHaveBeenCalledWith(text, source, target);
+    expect(replier.replyText).toHaveBeenCalledWith("reply-token", "translated");
+  });
+
+  it.each([
+    ["zh-to-en", "* Four countries just saved you three sourcing trips.* The China, Germany, Japan, Taiwan Pavilions are coming to electronica India & productronica India 2026. Get a ₹500 Uber coupon: https://u.uber.com/RVSZSPVCKKV"],
+    ["en-to-zh", "你好"],
+    ["en-to-zh", "Meeting 明天下午三點"],
+    ["zh-to-en", "123 😀"],
+    ["en-to-zh", "123 😀"],
+  ] as const)("silently ignores %s text %s", async (mode, text) => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: mode,
+    });
+    const result = await callWebhook({events: [groupTextEvent(text)]});
+    expect(translator.translate).not.toHaveBeenCalled();
+    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
+  });
+
+  it.each([
+    ["zh-to-en", "Hello", true],
+    ["en-to-zh", "你好", true],
+    ["en-to-zh", "Hello 你好", true],
+    ["zh-en", "123 😀", true],
+    ["zh-to-en", "你好", false],
+    ["zh-en", "Hello", false],
+  ] as const)("returns only transcript in %s for %s when translation is %s", async (mode, text, enabled) => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: enabled, audioTranscriptionEnabled: true, translationMode: mode,
+    });
+    vi.mocked(transcriber.transcribe).mockResolvedValue({text, languageCode: "en-US"});
+    const result = await callWebhook({events: [groupAudioEvent()]});
+    expect(translator.translate).not.toHaveBeenCalled();
+    expect(replier.replyText).toHaveBeenCalledWith("audio-reply-token", text);
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+  });
+
+  it.each([
+    ["zh-to-en", "你好", "zh-TW", "en"],
+    ["en-to-zh", "Hello", "en", "zh-TW"],
+    ["zh-to-en", "你好 Hello", "zh-TW", "en"],
+    ["zh-en", "Hello", "en", "zh-TW"],
+    ["zh-vi", "Xin chào", "vi", "zh-TW"],
+  ] as const)("applies text rules to the %s transcript %s", async (mode, text, source, target) => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: mode,
+    });
+    vi.mocked(transcriber.transcribe).mockResolvedValue({text, languageCode: "en-US"});
+    await callWebhook({events: [groupAudioEvent()]});
+    expect(translator.translate).toHaveBeenCalledWith(text, source, target);
+    expect(replier.replyText).toHaveBeenCalledWith("audio-reply-token", text + "\n\ntranslated");
+  });
+
+  it.each([
+    [false, false, 0, 0, 0],
+    [true, false, 1, 0, 1],
+    [false, true, 0, 1, 1],
+    [true, true, 2, 1, 2],
+  ] as const)("keeps text=%s and audio=%s independent", async (text, audio, translations, downloads, replies) => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: text, audioTranscriptionEnabled: audio, translationMode: "zh-to-en",
+    });
+    await callWebhook({events: [groupTextEvent("你好"), groupAudioEvent()]});
+    expect(translator.translate).toHaveBeenCalledTimes(translations);
+    expect(audioContentLoader.getMessageContent).toHaveBeenCalledTimes(downloads);
+    expect(transcriber.transcribe).toHaveBeenCalledTimes(downloads);
+    expect(replier.replyText).toHaveBeenCalledTimes(replies);
+  });
+
+  it.each([
+    ["/啟用語音轉文字", true], ["/停用語音轉文字", false],
+  ] as const)("handles independent audio command %s", async (command, enabled) => {
+    await callWebhook({events: [groupTextEvent(command)]});
+    expect(settingsStore.setAudioTranscriptionEnabled).toHaveBeenCalledWith("group-id", enabled, ownerUserId);
+    expect(settingsStore.setTextTranslationEnabled).not.toHaveBeenCalled();
+    expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/啟用文字翻譯", true], ["/停用文字翻譯", false],
+    ["/啟用翻譯", true], ["/停用翻譯", false],
+  ] as const)("handles text command and legacy alias %s", async (command, enabled) => {
+    await callWebhook({events: [groupTextEvent(command)]});
+    expect(settingsStore.setTextTranslationEnabled).toHaveBeenCalledWith("group-id", enabled, ownerUserId);
+    expect(settingsStore.setAudioTranscriptionEnabled).not.toHaveBeenCalled();
+  });
+
+  it.each(["zh-to-en", "en-to-zh"] as const)("restores %s without changing audio", async (mode) => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: false, audioTranscriptionEnabled: false, translationMode: mode,
+    });
+    await callWebhook({events: [groupTextEvent("/啟用翻譯")]});
+    expect(settingsStore.setTextTranslationEnabled).toHaveBeenCalledWith("group-id", true, ownerUserId);
+    expect(settingsStore.setAudioTranscriptionEnabled).not.toHaveBeenCalled();
+    expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
+    expect(replier.replyText).toHaveBeenCalledWith("reply-token",
+      expect.stringContaining(mode === "zh-to-en" ? "中翻英" : "英翻中"));
+  });
+
+  it("lists translation modes followed by independent switches", async () => {
+    await callWebhook({events: [groupTextEvent("/翻譯設定")]});
+    expect(replier.replyText).toHaveBeenCalledWith("reply-token",
+      "翻譯模式：中英\n文字翻譯：已啟用\n語音轉文字：已啟用\n\n可用指令：\n/中翻英\n/英翻中\n/中英翻譯\n/中越翻譯\n/停用翻譯\n/啟用文字翻譯\n/停用文字翻譯\n/啟用語音轉文字\n/停用語音轉文字");
+  });
+
+  it("does not execute settings commands spoken in audio", async () => {
+    vi.mocked(transcriber.transcribe).mockResolvedValue({text: "/停用文字翻譯"});
+    await callWebhook({events: [groupAudioEvent()]});
+    expect(settingsStore.setTextTranslationEnabled).not.toHaveBeenCalled();
+    expect(settingsStore.setAudioTranscriptionEnabled).not.toHaveBeenCalled();
+    expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
   });
 
   it("returns 200 for LINE webhook URL verification", async () => {
     const result = await callWebhook({destination: "destination", events: []});
 
-    expect(result).toEqual({status: 200, body: {ok: true, processed: 0, ignored: 0, failed: 0}});
+    expect(result).toEqual({
+      status: 200,
+      body: {ok: true, processed: 0, ignored: 0, failed: 0},
+    });
   });
 
   it("rejects non-POST requests without calling external APIs", async () => {
     const rawBody = Buffer.from('{"events":[]}');
     const result = await processLineWebhook(
       {method: "GET", rawBody},
-      {
-        channelSecret,
-        translator,
-        transcriber,
-        audioContentLoader,
-        replier,
-        activationStore,
-        ownerUserId,
-        logger,
-      },
+      dependencies(),
     );
 
-    expect(result).toEqual({status: 405, body: {ok: false, error: "Method not allowed"}});
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
-    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 405,
+      body: {ok: false, error: "Method not allowed"},
+    });
+    expect(translator.translate).not.toHaveBeenCalled();
   });
 
-  it("rejects a signed body without an events array", async () => {
-    const result = await callWebhook({destination: "destination"});
+  it("translates Chinese group text to English in Chinese-English mode", async () => {
+    await callWebhook({events: [groupTextEvent("明天下午三點開會")]});
 
-    expect(result).toEqual({status: 400, body: {ok: false, error: "Invalid webhook body"}});
+    expect(settingsStore.getSettings).toHaveBeenCalledWith("group-id");
+    expect(translator.translate).toHaveBeenCalledWith(
+      "明天下午三點開會",
+      "zh-TW",
+      "en",
+    );
+    expect(replier.replyText).toHaveBeenCalledWith("reply-token", "translated");
   });
 
-  it("translates Chinese group text and replies in English", async () => {
-    const result = await callWebhook({
-      events: [groupTextEvent("明天下午三點開會")],
+  it("translates English group text to Traditional Chinese", async () => {
+    await callWebhook({events: [groupTextEvent("Meeting at three tomorrow.")]});
+
+    expect(translator.translate).toHaveBeenCalledWith(
+      "Meeting at three tomorrow.",
+      "en",
+      "zh-TW",
+    );
+  });
+
+  it("translates Chinese text to Vietnamese in Chinese-Vietnamese mode", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true,
+      audioTranscriptionEnabled: true,
+      translationMode: "zh-vi",
     });
 
-    expect(translator.translateTraditionalChineseToEnglish).toHaveBeenCalledWith("明天下午三點開會");
-    expect(activationStore.isEnabled).toHaveBeenCalledWith("group-id");
-    expect(replier.replyText).toHaveBeenCalledWith("reply-token", "Hello");
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+    await callWebhook({events: [groupTextEvent("你好")]});
+
+    expect(translator.translate).toHaveBeenCalledWith("你好", "zh-TW", "vi");
   });
 
-  it("transcribes Chinese group audio and replies with Chinese and English", async () => {
-    const result = await callWebhook({
-      events: [groupAudioEvent()],
+  it("translates Vietnamese text to Traditional Chinese", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true,
+      audioTranscriptionEnabled: true,
+      translationMode: "zh-vi",
     });
+
+    await callWebhook({events: [groupTextEvent("Xin chào")]});
+
+    expect(translator.translate).toHaveBeenCalledWith("Xin chào", "vi", "zh-TW");
+  });
+
+  it("ignores text without Chinese or Latin characters", async () => {
+    const result = await callWebhook({events: [groupTextEvent("123 😀")]});
+
+    expect(translator.translate).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
+  });
+
+  it("transcribes Chinese group audio with the selected language pair", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true,
+      audioTranscriptionEnabled: true,
+      translationMode: "zh-vi",
+    });
+
+    await callWebhook({events: [groupAudioEvent()]});
 
     expect(audioContentLoader.getMessageContent).toHaveBeenCalledWith(
       "audio-message-id",
       10_000_000,
     );
-    expect(transcriber.transcribe).toHaveBeenCalledWith(Buffer.from("audio"));
-    expect(translator.translateTraditionalChineseToEnglish).toHaveBeenCalledWith(
+    expect(transcriber.transcribe).toHaveBeenCalledWith(
+      Buffer.from("audio"),
+      ["cmn-Hant-TW", "vi-VN"],
+    );
+    expect(translator.translate).toHaveBeenCalledWith(
       "明天下午三點開會",
+      "zh-TW",
+      "vi",
     );
     expect(replier.replyText).toHaveBeenCalledWith(
       "audio-reply-token",
-      "明天下午三點開會\n\nHello",
+      "明天下午三點開會\n\ntranslated",
     );
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
-  it("replies with only the transcript when group audio is not Chinese", async () => {
-    vi.mocked(transcriber.transcribe).mockResolvedValue("Meeting at three tomorrow.");
-
-    const result = await callWebhook({events: [groupAudioEvent()]});
-
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
-    expect(replier.replyText).toHaveBeenCalledWith(
-      "audio-reply-token",
-      "Meeting at three tomorrow.",
-    );
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
-  });
-
-  it("does not download group audio before the group is enabled", async () => {
-    vi.mocked(activationStore.isEnabled).mockResolvedValue(false);
-
-    const result = await callWebhook({events: [groupAudioEvent()]});
-
-    expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
-    expect(transcriber.transcribe).not.toHaveBeenCalled();
-    expect(replier.replyText).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
-  });
-
-  it("rejects group audio above the synchronous recognition duration limit", async () => {
-    const result = await callWebhook({
-      events: [groupAudioEvent(60_000)],
+  it("translates Vietnamese audio transcripts to Traditional Chinese", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true,
+      audioTranscriptionEnabled: true,
+      translationMode: "zh-vi",
+    });
+    vi.mocked(transcriber.transcribe).mockResolvedValue({
+      text: "Xin chào",
+      languageCode: "vi-VN",
     });
 
+    await callWebhook({events: [groupAudioEvent()]});
+
+    expect(translator.translate).toHaveBeenCalledWith("Xin chào", "vi", "zh-TW");
+  });
+
+  it("supports text and audio in a one-to-one conversation", async () => {
+    await callWebhook({
+      events: [
+        userTextEvent("你好"),
+        userAudioEvent(),
+      ],
+    });
+
+    expect(settingsStore.getSettings).toHaveBeenCalledWith("user:private-user-id");
+    expect(audioContentLoader.getMessageContent).toHaveBeenCalledWith(
+      "user-audio-message-id",
+      10_000_000,
+    );
+    expect(translator.translate).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not process text or audio while a conversation is disabled", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: false,
+      audioTranscriptionEnabled: false,
+      translationMode: "zh-en",
+    });
+
+    const result = await callWebhook({
+      events: [groupTextEvent("你好"), groupAudioEvent()],
+    });
+
+    expect(translator.translate).not.toHaveBeenCalled();
     expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
-    expect(transcriber.transcribe).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({processed: 0, ignored: 2, failed: 0});
+  });
+
+  it("rejects audio above the synchronous recognition duration limit", async () => {
+    const result = await callWebhook({events: [groupAudioEvent(60_000)]});
+
+    expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
     expect(replier.replyText).toHaveBeenCalledWith(
       "audio-reply-token",
       expect.stringContaining("59 秒"),
     );
-    expect(logger.warn).toHaveBeenCalledOnce();
     expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
-  it("returns the sender user ID only for the private ID command", async () => {
-    const result = await callWebhook({events: [userTextEvent(" /我的ID ")]});
+  it("returns the sender user ID for the private ID command", async () => {
+    await callWebhook({events: [userTextEvent(" /我的ID ")]});
 
     expect(replier.replyText).toHaveBeenCalledWith(
       "user-reply-token",
       "你的 LINE userId：\nprivate-user-id",
     );
-    expect(activationStore.isEnabled).not.toHaveBeenCalled();
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+    expect(settingsStore.getSettings).not.toHaveBeenCalled();
   });
 
-  it("ignores one-to-one audio", async () => {
-    const result = await callWebhook({events: [userAudioEvent()]});
+  it("does not expose a user ID or translate the ID command in groups", async () => {
+    const result = await callWebhook({events: [groupTextEvent("/我的ID")]});
 
-    expect(activationStore.isEnabled).not.toHaveBeenCalled();
-    expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
-    expect(transcriber.transcribe).not.toHaveBeenCalled();
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
     expect(replier.replyText).not.toHaveBeenCalled();
+    expect(translator.translate).not.toHaveBeenCalled();
+    expect(settingsStore.getSettings).not.toHaveBeenCalled();
     expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
   });
 
-  it("ignores other one-to-one messages", async () => {
-    const result = await callWebhook({events: [userTextEvent("你好")]});
-
-    expect(replier.replyText).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
-  });
-
-  it("does not translate Chinese text before the group is enabled", async () => {
-    vi.mocked(activationStore.isEnabled).mockResolvedValue(false);
-
-    const result = await callWebhook({events: [groupTextEvent("你好")]});
-
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
-    expect(replier.replyText).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
-  });
-
-  it("explains how to enable translation when joining a new disabled group", async () => {
-    vi.mocked(activationStore.isEnabled).mockResolvedValue(false);
-
-    const result = await callWebhook({events: [groupJoinEvent()]});
-
-    expect(activationStore.isEnabled).toHaveBeenCalledWith("group-id");
-    expect(activationStore.setEnabled).not.toHaveBeenCalled();
-    expect(replier.replyText).toHaveBeenCalledWith(
-      "join-reply-token",
-      expect.stringContaining("/啟用翻譯"),
-    );
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
-  });
-
-  it("preserves an existing enabled state when the bot rejoins a group", async () => {
-    vi.mocked(activationStore.isEnabled).mockResolvedValue(true);
+  it("shows setup instructions when joining a disabled group", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: false,
+      audioTranscriptionEnabled: false,
+      translationMode: "zh-en",
+    });
 
     await callWebhook({events: [groupJoinEvent()]});
 
-    expect(activationStore.setEnabled).not.toHaveBeenCalled();
     expect(replier.replyText).toHaveBeenCalledWith(
       "join-reply-token",
+      expect.stringContaining("/中越翻譯"),
+    );
+    expect(settingsStore.setTextTranslationEnabled).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/中翻英", "zh-to-en"],
+    ["/英翻中", "en-to-zh"],
+    ["/中英翻譯", "zh-en"],
+    ["/中越翻譯", "zh-vi"],
+  ] as const)("lets the configured owner select and enable %s", async (command, mode) => {
+    await callWebhook({events: [groupTextEvent(command)]});
+
+    expect(settingsStore.setModeAndEnabled).toHaveBeenCalledWith(
+      "group-id",
+      mode,
+      ownerUserId,
+    );
+    expect(replier.replyText).toHaveBeenCalledWith(
+      "reply-token",
       expect.stringContaining("已啟用"),
     );
   });
 
-  it("lets the configured owner enable translation", async () => {
-    const result = await callWebhook({events: [groupTextEvent(" /啟用翻譯 ")]});
-
-    expect(activationStore.setEnabled).toHaveBeenCalledWith("group-id", true, ownerUserId);
-    expect(replier.replyText).toHaveBeenCalledWith("reply-token", expect.stringContaining("已啟用"));
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
-  });
-
-  it("lets the configured owner disable translation", async () => {
-    const result = await callWebhook({events: [groupTextEvent("/停用翻譯")]});
-
-    expect(activationStore.setEnabled).toHaveBeenCalledWith("group-id", false, ownerUserId);
-    expect(replier.replyText).toHaveBeenCalledWith("reply-token", expect.stringContaining("已停用"));
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
-  });
-
-  it("rejects activation commands from other group members", async () => {
-    const event = groupTextEvent("/啟用翻譯");
+  it.each(["/中翻英", "/英翻中", "/中英翻譯", "/中越翻譯", "/停用翻譯", "/啟用翻譯", "/啟用文字翻譯", "/停用文字翻譯", "/啟用語音轉文字", "/停用語音轉文字"])("rejects unauthorized %s", async (command) => {
+    const event = groupTextEvent(command);
     event.source.userId = "another-user-id";
-
-    const result = await callWebhook({events: [event]});
-
-    expect(activationStore.setEnabled).not.toHaveBeenCalled();
-    expect(replier.replyText).toHaveBeenCalledWith("reply-token", expect.stringContaining("沒有權限"));
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
-  });
-
-  it("rejects activation commands when LINE omits the sender user ID", async () => {
-    const event = {
-      ...groupTextEvent("/啟用翻譯"),
-      source: {type: "group", groupId: "group-id"},
-    };
 
     await callWebhook({events: [event]});
 
-    expect(activationStore.setEnabled).not.toHaveBeenCalled();
-    expect(replier.replyText).toHaveBeenCalledWith("reply-token", expect.stringContaining("沒有權限"));
+    expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
+    expect(replier.replyText).toHaveBeenCalledWith(
+      "reply-token",
+      expect.stringContaining("沒有權限"),
+    );
   });
 
-  it.each([
-    [true, "已啟用"],
-    [false, "未啟用"],
-  ])("reports the current translation status when enabled is %s", async (enabled, expectedText) => {
-    vi.mocked(activationStore.isEnabled).mockResolvedValue(enabled);
+  it("lets a private user select their own mode", async () => {
+    await callWebhook({events: [userTextEvent("/中越翻譯")]});
 
-    await callWebhook({events: [groupTextEvent("/翻譯狀態")]});
-
-    expect(replier.replyText).toHaveBeenCalledWith("reply-token", expect.stringContaining(expectedText));
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
+    expect(settingsStore.setModeAndEnabled).toHaveBeenCalledWith(
+      "user:private-user-id",
+      "zh-vi",
+      "private-user-id",
+    );
   });
 
-  it("ignores English, non-text, and one-to-one messages", async () => {
-    const result = await callWebhook({
+  it("disables without clearing the selected mode", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true,
+      audioTranscriptionEnabled: true,
+      translationMode: "zh-vi",
+    });
+
+    await callWebhook({events: [groupTextEvent("/停用翻譯")]});
+
+    expect(settingsStore.setTextTranslationEnabled).toHaveBeenCalledWith(
+      "group-id",
+      false,
+      ownerUserId,
+    );
+    expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
+    expect(replier.replyText).toHaveBeenCalledWith(
+      "reply-token",
+      expect.stringContaining("已停用文字翻譯"),
+    );
+  });
+
+  it("restores the previously selected mode", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: false,
+      audioTranscriptionEnabled: false,
+      translationMode: "zh-vi",
+    });
+
+    await callWebhook({events: [groupTextEvent("/啟用翻譯")]});
+
+    expect(settingsStore.setTextTranslationEnabled).toHaveBeenCalledWith(
+      "group-id",
+      true,
+      ownerUserId,
+    );
+    expect(replier.replyText).toHaveBeenCalledWith(
+      "reply-token",
+      expect.stringContaining("中越"),
+    );
+  });
+
+  it("reports status and lists settings commands", async () => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true,
+      audioTranscriptionEnabled: true,
+      translationMode: "zh-vi",
+    });
+
+    await callWebhook({
       events: [
-        groupTextEvent("English only"),
-        {...groupTextEvent("你好"), message: {type: "image", id: "image-id"}},
-        {...groupTextEvent("你好"), source: {type: "user", userId: "user-id"}},
+        groupTextEvent("/翻譯狀態"),
+        userTextEvent("/翻譯設定"),
       ],
     });
 
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
-    expect(replier.replyText).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 0, ignored: 3, failed: 0});
+    expect(replier.replyText).toHaveBeenNthCalledWith(
+      1,
+      "reply-token",
+      "翻譯模式：中越\n文字翻譯：已啟用\n語音轉文字：已啟用",
+    );
+    expect(replier.replyText).toHaveBeenNthCalledWith(
+      2,
+      "user-reply-token",
+      expect.stringContaining("/中英翻譯"),
+    );
   });
 
   it("ignores messages above the configured length limit", async () => {
     const result = await callWebhook({events: [groupTextEvent("中文太長")]}, 3);
 
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
+    expect(translator.translate).not.toHaveBeenCalled();
     expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
     expect(logger.warn).toHaveBeenCalledOnce();
   });
 
-  it("rejects an invalid signature before parsing or calling APIs", async () => {
+  it("rejects invalid signatures and invalid JSON", async () => {
     const rawBody = Buffer.from('{"events":[]}');
-    const result = await processLineWebhook(
+    const invalidSignatureResult = await processLineWebhook(
       {method: "POST", rawBody, signature: "invalid"},
-      {
-        channelSecret,
-        translator,
-        transcriber,
-        audioContentLoader,
-        replier,
-        activationStore,
-        ownerUserId,
-        logger,
-      },
+      dependencies(),
+    );
+    const invalidJson = Buffer.from("not-json");
+    const invalidJsonResult = await processLineWebhook(
+      {method: "POST", rawBody: invalidJson, signature: sign(invalidJson)},
+      dependencies(),
     );
 
-    expect(result.status).toBe(401);
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
+    expect(invalidSignatureResult.status).toBe(401);
+    expect(invalidJsonResult.status).toBe(400);
   });
 
-  it("rejects invalid JSON with a valid signature", async () => {
-    const rawBody = Buffer.from("not-json");
-    const result = await processLineWebhook(
-      {method: "POST", rawBody, signature: sign(rawBody)},
-      {
-        channelSecret,
-        translator,
-        transcriber,
-        audioContentLoader,
-        replier,
-        activationStore,
-        ownerUserId,
-        logger,
-      },
-    );
-
-    expect(result.status).toBe(400);
-  });
-
-  it("logs API errors without returning a non-2xx response that triggers redelivery", async () => {
-    vi.mocked(translator.translateTraditionalChineseToEnglish).mockRejectedValue(new Error("API unavailable"));
+  it("logs API errors while returning 200 to prevent LINE redelivery", async () => {
+    vi.mocked(translator.translate).mockRejectedValue(new Error("API unavailable"));
 
     const result = await callWebhook({events: [groupTextEvent("你好")]});
 
-    expect(result).toEqual({status: 200, body: {ok: true, processed: 0, ignored: 0, failed: 1}});
-    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 200,
+      body: {ok: true, processed: 0, ignored: 0, failed: 1},
+    });
     expect(logger.error).toHaveBeenCalledWith(
-      "Failed to process a LINE group message.",
-      expect.objectContaining({webhookEventId: "webhook-event-id", error: "API unavailable"}),
+      "Failed to process a LINE chat message.",
+      expect.objectContaining({error: "API unavailable"}),
     );
   });
 
-  it("records a LINE reply failure without retrying the reply", async () => {
-    vi.mocked(replier.replyText).mockRejectedValue(new Error("Reply token expired"));
-
-    const result = await callWebhook({events: [groupTextEvent("你好")]});
-
-    expect(translator.translateTraditionalChineseToEnglish).toHaveBeenCalledOnce();
-    expect(replier.replyText).toHaveBeenCalledOnce();
-    expect(result.body).toMatchObject({processed: 0, ignored: 0, failed: 1});
-    expect(logger.error).toHaveBeenCalledWith(
-      "Failed to process a LINE group message.",
-      expect.objectContaining({error: "Reply token expired"}),
-    );
-  });
-
-  it("records an activation store failure without translating or replying", async () => {
-    vi.mocked(activationStore.isEnabled).mockRejectedValue(new Error("Firestore unavailable"));
-
-    const result = await callWebhook({events: [groupTextEvent("你好")]});
-
-    expect(result.body).toMatchObject({processed: 0, ignored: 0, failed: 1});
-    expect(translator.translateTraditionalChineseToEnglish).not.toHaveBeenCalled();
-    expect(replier.replyText).not.toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith(
-      "Failed to process a LINE group message.",
-      expect.objectContaining({error: "Firestore unavailable"}),
-    );
-  });
+  function dependencies() {
+    return {
+      channelSecret,
+      translator,
+      transcriber,
+      audioContentLoader,
+      replier,
+      settingsStore,
+      ownerUserId,
+      logger,
+    };
+  }
 
   async function callWebhook(body: object, maxMessageLength?: number) {
     const rawBody = Buffer.from(JSON.stringify(body));
     return processLineWebhook(
       {method: "POST", rawBody, signature: sign(rawBody)},
-      {
-        channelSecret,
-        translator,
-        transcriber,
-        audioContentLoader,
-        replier,
-        activationStore,
-        ownerUserId,
-        logger,
-        maxMessageLength,
-      },
+      {...dependencies(), maxMessageLength},
     );
   }
 });
@@ -387,7 +550,6 @@ function groupTextEvent(text: string) {
     source: {type: "group", groupId: "group-id", userId: ownerUserId},
     message: {type: "text", id: "message-id", text},
     webhookEventId: "webhook-event-id",
-    deliveryContext: {isRedelivery: false},
   };
 }
 
@@ -412,7 +574,6 @@ function groupAudioEvent(duration = 12_000) {
       contentProvider: {type: "line"},
     },
     webhookEventId: "audio-webhook-event-id",
-    deliveryContext: {isRedelivery: false},
   };
 }
 
@@ -440,4 +601,3 @@ function userAudioEvent(duration = 12_000) {
     webhookEventId: "user-audio-webhook-event-id",
   };
 }
-

@@ -1,9 +1,16 @@
+import type {TranslationMode} from "./domain.js";
+
 export interface Translator {
-  translateTraditionalChineseToEnglish(text: string): Promise<string>;
+  translate(text: string, sourceLanguageCode: string, targetLanguageCode: string): Promise<string>;
+}
+
+export interface TranscriptionResult {
+  text: string;
+  languageCode?: string;
 }
 
 export interface AudioTranscriber {
-  transcribe(audioContent: Buffer): Promise<string>;
+  transcribe(audioContent: Buffer, languageCodes: string[]): Promise<TranscriptionResult>;
 }
 
 export interface AudioContentLoader {
@@ -14,9 +21,21 @@ export interface LineReplier {
   replyText(replyToken: string, text: string): Promise<void>;
 }
 
-export interface GroupActivationStore {
-  isEnabled(groupId: string): Promise<boolean>;
-  setEnabled(groupId: string, enabled: boolean, changedBy: string): Promise<void>;
+export interface ConversationSettings {
+  textTranslationEnabled: boolean;
+  audioTranscriptionEnabled: boolean;
+  translationMode: TranslationMode;
+}
+
+export interface ConversationSettingsStore {
+  getSettings(conversationId: string): Promise<ConversationSettings>;
+  setTextTranslationEnabled(conversationId: string, enabled: boolean, changedBy: string): Promise<void>;
+  setAudioTranscriptionEnabled(conversationId: string, enabled: boolean, changedBy: string): Promise<void>;
+  setModeAndEnabled(
+    conversationId: string,
+    translationMode: TranslationMode,
+    changedBy: string,
+  ): Promise<void>;
 }
 
 interface FirestoreDocumentSnapshot {
@@ -34,18 +53,41 @@ interface FirestoreClient {
   };
 }
 
-export class FirestoreGroupActivationStore implements GroupActivationStore {
+export class FirestoreConversationSettingsStore implements ConversationSettingsStore {
   public constructor(private readonly firestore: FirestoreClient) {}
 
-  public async isEnabled(groupId: string): Promise<boolean> {
-    const snapshot = await this.groupDocument(groupId).get();
-    return snapshot.get("enabled") === true;
+  public async getSettings(conversationId: string): Promise<ConversationSettings> {
+    const snapshot = await this.conversationDocument(conversationId).get();
+    const storedMode = snapshot.get("translationMode");
+    return {
+      textTranslationEnabled: readFeatureFlag(snapshot, "textTranslationEnabled"),
+      audioTranscriptionEnabled: readFeatureFlag(snapshot, "audioTranscriptionEnabled"),
+      translationMode: storedMode === "zh-to-en" || storedMode === "en-to-zh" ||
+        storedMode === "zh-vi" ? storedMode : "zh-en",
+    };
   }
 
-  public async setEnabled(groupId: string, enabled: boolean, changedBy: string): Promise<void> {
-    await this.groupDocument(groupId).set(
+  public async setTextTranslationEnabled(
+    conversationId: string, enabled: boolean, changedBy: string,
+  ): Promise<void> {
+    await this.setFeatureEnabled(conversationId, "textTranslationEnabled", enabled, changedBy);
+  }
+
+  public async setAudioTranscriptionEnabled(
+    conversationId: string, enabled: boolean, changedBy: string,
+  ): Promise<void> {
+    await this.setFeatureEnabled(conversationId, "audioTranscriptionEnabled", enabled, changedBy);
+  }
+
+  private async setFeatureEnabled(
+    conversationId: string,
+    field: "textTranslationEnabled" | "audioTranscriptionEnabled",
+    enabled: boolean,
+    changedBy: string,
+  ): Promise<void> {
+    await this.conversationDocument(conversationId).set(
       {
-        enabled,
+        [field]: enabled,
         changedBy,
         changedAt: new Date(),
       },
@@ -53,9 +95,30 @@ export class FirestoreGroupActivationStore implements GroupActivationStore {
     );
   }
 
-  private groupDocument(groupId: string): FirestoreDocumentReference {
-    return this.firestore.collection("lineTranslationGroups").doc(groupId);
+  public async setModeAndEnabled(
+    conversationId: string,
+    translationMode: TranslationMode,
+    changedBy: string,
+  ): Promise<void> {
+    await this.conversationDocument(conversationId).set(
+      {
+        textTranslationEnabled: true,
+        translationMode,
+        changedBy,
+        changedAt: new Date(),
+      },
+      {merge: true},
+    );
   }
+
+  private conversationDocument(conversationId: string): FirestoreDocumentReference {
+    return this.firestore.collection("lineTranslationGroups").doc(conversationId);
+  }
+}
+
+function readFeatureFlag(snapshot: FirestoreDocumentSnapshot, field: string): boolean {
+  const value = snapshot.get(field);
+  return typeof value === "boolean" ? value : snapshot.get("enabled") === true;
 }
 
 interface TranslationClient {
@@ -103,6 +166,7 @@ interface SpeechRecognitionRequest {
 
 interface SpeechRecognitionResponse {
   results?: Array<{
+    languageCode?: string | null;
     alternatives?: Array<{
       transcript?: string | null;
     }> | null;
@@ -126,14 +190,18 @@ export class GoogleCloudTranslator implements Translator {
     this.client = client;
   }
 
-  public async translateTraditionalChineseToEnglish(text: string): Promise<string> {
+  public async translate(
+    text: string,
+    sourceLanguageCode: string,
+    targetLanguageCode: string,
+  ): Promise<string> {
     const client = await this.getClient();
     const [response] = await client.translateText({
       parent: `projects/${this.projectId}/locations/global`,
       contents: [text],
       mimeType: "text/plain",
-      sourceLanguageCode: "zh-TW",
-      targetLanguageCode: "en",
+      sourceLanguageCode,
+      targetLanguageCode,
     });
 
     const translatedText = response.translations?.[0]?.translatedText?.trim();
@@ -164,13 +232,16 @@ export class GoogleCloudSpeechTranscriber implements AudioTranscriber {
     this.client = client;
   }
 
-  public async transcribe(audioContent: Buffer): Promise<string> {
+  public async transcribe(
+    audioContent: Buffer,
+    languageCodes: string[],
+  ): Promise<TranscriptionResult> {
     const client = await this.getClient();
     const [response] = await client.recognize({
       recognizer: `projects/${this.projectId}/locations/global/recognizers/_`,
       config: {
         autoDecodingConfig: {},
-        languageCodes: ["cmn-Hant-TW", "en-US"],
+        languageCodes,
         model: "long",
         features: {
           enableAutomaticPunctuation: true,
@@ -188,7 +259,11 @@ export class GoogleCloudSpeechTranscriber implements AudioTranscriber {
       throw new Error("Google Cloud Speech-to-Text API returned an empty transcript.");
     }
 
-    return transcript;
+    const languageCode = (response.results ?? [])
+      .find((result) => result.languageCode)
+      ?.languageCode ?? undefined;
+
+    return {text: transcript, languageCode};
   }
 
   private async getClient(): Promise<SpeechRecognitionClient> {
