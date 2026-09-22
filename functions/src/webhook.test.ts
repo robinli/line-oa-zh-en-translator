@@ -7,6 +7,8 @@ import type {
   LineReplier,
   Translator,
 } from "./services.js";
+import {TranslationQualityError} from "./trade-policy.js";
+import {TranslationServiceError} from "./business-translator.js";
 import {processLineWebhook, type WebhookLogger} from "./webhook.js";
 
 const channelSecret = "test-channel-secret";
@@ -245,6 +247,87 @@ describe("processLineWebhook", () => {
 
     expect(translator.translate).not.toHaveBeenCalled();
     expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
+  });
+
+  it.each([
+    ["zh-en", "260921 BGYD", "260921 BGYD", "en", "zh-TW"],
+    ["en-to-zh", "260921 BGYD", "260921 BGYD", "en", "zh-TW"],
+    ["zh-vi", "260921 BGYD", "260921 BGYD", "vi", "zh-TW"],
+    ["zh-en", " \t260921  BGYD\r\n", "260921\nBGYD", "en", "zh-TW"],
+    ["zh-to-en", "請檢查批號", "請檢查批號", "zh-TW", "en"],
+  ] as const)("skips unchanged group translations in %s for %j", async (mode, text, translation, source, target) => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: mode,
+    });
+    vi.mocked(translator.translate).mockResolvedValue(translation);
+
+    const result = await callWebhook({events: [groupTextEvent(text)]});
+
+    expect(translator.translate).toHaveBeenCalledWith(text, source, target);
+    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 200, body: {ok: true, processed: 0, ignored: 1, failed: 0},
+    });
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith(
+      "Skipped an unchanged translation for a LINE group text message.",
+      {
+        webhookEventId: "webhook-event-id",
+        sourceLanguageCode: source,
+        targetLanguageCode: target,
+      },
+    );
+  });
+
+  it.each([
+    ["Wire", "金屬絲"],
+    ["WIRE", "金屬絲"],
+    ["請檢查 260921 BGYD", "Please check 260921 BGYD"],
+    ["BGYD", "bgyd"],
+    ["BGYD", "BGYD."],
+  ])("still replies when translating %j changes the content", async (text, translation) => {
+    vi.mocked(translator.translate).mockResolvedValue(translation);
+
+    const result = await callWebhook({events: [groupTextEvent(text)]});
+
+    expect(translator.translate).toHaveBeenCalledOnce();
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", translation);
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+  });
+
+  it("preserves unchanged translation replies in one-to-one chats", async () => {
+    vi.mocked(translator.translate).mockResolvedValue("260921 BGYD");
+
+    const result = await callWebhook({events: [userTextEvent("260921 BGYD")]});
+
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("user-reply-token", "260921 BGYD");
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("continues processing a batch after an unchanged group translation", async () => {
+    vi.mocked(translator.translate)
+      .mockResolvedValueOnce("260921 BGYD")
+      .mockResolvedValueOnce("金屬絲");
+
+    const result = await callWebhook({
+      events: [groupTextEvent("260921 BGYD"), groupTextEvent("Wire")],
+    });
+
+    expect(translator.translate).toHaveBeenCalledTimes(2);
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "金屬絲");
+    expect(result.body).toMatchObject({processed: 1, ignored: 1, failed: 0});
+  });
+
+  it("preserves group audio transcription replies when the translation is unchanged", async () => {
+    vi.mocked(transcriber.transcribe).mockResolvedValue({text: "260921 BGYD"});
+    vi.mocked(translator.translate).mockResolvedValue("260921 BGYD");
+
+    const result = await callWebhook({events: [groupAudioEvent()]});
+
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith(
+      "audio-reply-token", "260921 BGYD\n\n260921 BGYD",
+    );
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
   it("transcribes Chinese group audio with the selected language pair", async () => {
@@ -515,6 +598,93 @@ describe("processLineWebhook", () => {
       "Failed to process a LINE chat message.",
       expect.objectContaining({error: "API unavailable"}),
     );
+  });
+
+
+  it("ignores a translation that changes only punctuation width", async () => {
+    vi.mocked(translator.translate).mockResolvedValue("PP-BK？");
+    const result = await callWebhook({events: [groupTextEvent("PP-BK?")]});
+    expect(translator.translate).toHaveBeenCalledOnce();
+    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({ignored: 1});
+  });
+
+  it.each(["PP-BK?", "PH-BK?", "WIRE?"])("does not reply when %s only gains punctuation whitespace", async (text) => {
+    vi.mocked(translator.translate).mockResolvedValue(text.replace("?", " ?"));
+    const result = await callWebhook({events: [groupTextEvent(text)]});
+    expect(translator.translate).toHaveBeenCalledOnce();
+    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({ignored: 1, failed: 0});
+  });
+
+  it.each(["zh-en", "en-to-zh", "zh-to-en"] as const)(
+    "routes English body with a Chinese mention correctly in %s", async (mode) => {
+      const mention = "@Niranjan Prakash @B5-海屏 Eric胡哲榮";
+      const text = mention + "\nKumar said that he already gave $1295 to Xmold... Please be aware of it.";
+      const event = groupTextEvent(text);
+      Object.assign(event.message, {mention: {mentionees: [{index: 0, length: mention.length, type: "user"}]}});
+      vi.mocked(settingsStore.getSettings).mockResolvedValue({
+        textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: mode,
+      });
+      await callWebhook({events: [event]});
+      if (mode === "zh-to-en") {
+        expect(translator.translate).not.toHaveBeenCalled();
+        expect(replier.replyText).not.toHaveBeenCalled();
+      } else {
+        expect(translator.translate).toHaveBeenCalledExactlyOnceWith(text, "en", "zh-TW",
+          {protectedRanges: [{start: 0, length: mention.length}]});
+      }
+    },
+  );
+
+  it("still translates the Chinese freight reminder into English", async () => {
+    const text = "提醒一下\n現在出印度運價已經漲到2000以上\n十月預計會更高～\n目前我還不清楚你們價格估算方式\n但請注意 運價一直調漲 務必估算進去";
+    await callWebhook({events: [groupTextEvent(text)]});
+    expect(translator.translate).toHaveBeenCalledExactlyOnceWith(text, "zh-TW", "en");
+  });
+
+  it("does not infer language from the name in a mention-only message", async () => {
+    const event = groupTextEvent("@海屏 Eric");
+    Object.assign(event.message, {mention: {mentionees: [{index: 0, length: event.message.text.length}]}});
+    const result = await callWebhook({events: [event]});
+    expect(translator.translate).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({ignored: 1});
+  });
+
+  it("preserves untrimmed native mention offsets", async () => {
+    const mention = "@海外業務";
+    const text = " 😀 " + mention + " Hello";
+    const event = groupTextEvent(text);
+    Object.assign(event.message, {mention: {mentionees: [{index: 4, length: mention.length}]}});
+    await callWebhook({events: [event]});
+    expect(translator.translate).toHaveBeenCalledExactlyOnceWith(text, "en", "zh-TW",
+      {protectedRanges: [{start: 4, length: mention.length}]});
+  });
+
+  it.each(["group text", "group audio", "private text", "private audio"].flatMap((kind) =>
+    ["quality", "service"].map((failure) => ({kind, failure}))))(
+    "silently handles $failure failure for $kind", async ({kind, failure}) => {
+      vi.mocked(translator.translate).mockRejectedValue(failure === "quality" ?
+        new TranslationQualityError("protected_value_changed") : new TranslationServiceError());
+      const events = {
+        "group text": groupTextEvent("報價800美元"), "group audio": groupAudioEvent(),
+        "private text": userTextEvent("報價800美元"), "private audio": userAudioEvent(),
+      };
+      const result = await callWebhook({events: [events[kind as keyof typeof events]]});
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({failed: 1, processed: 0});
+      expect(replier.replyText).not.toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledOnce();
+      expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain("800");
+    },
+  );
+
+  it("continues the batch after silently skipping a failed translation", async () => {
+    vi.mocked(translator.translate).mockRejectedValueOnce(new TranslationQualityError("pricing_terminology"))
+      .mockResolvedValueOnce("Hello");
+    const result = await callWebhook({events: [groupTextEvent("底價"), groupTextEvent("你好")]});
+    expect(result.body).toMatchObject({failed: 1, processed: 1});
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "Hello");
   });
 
   function dependencies() {

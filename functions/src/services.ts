@@ -1,7 +1,18 @@
 import type {TranslationMode} from "./domain.js";
+import type {RestoredTextRange} from "./message-text.js";
+import {LineGroupMemberVerifier, type GroupMemberVerifier, type MentionReplyContext} from "./mentions.js";
+import {buildReplyMessages} from "./line-messages.js";
+import type {messagingApi} from "@line/bot-sdk";
+
+export interface TranslationContext {
+  protectedRanges?: ReadonlyArray<{start: number; length: number}>;
+}
 
 export interface Translator {
-  translate(text: string, sourceLanguageCode: string, targetLanguageCode: string): Promise<string>;
+  translate(text: string, sourceLanguageCode: string, targetLanguageCode: string,
+    context?: TranslationContext): Promise<string>;
+  translateWithRanges?(text: string, sourceLanguageCode: string, targetLanguageCode: string,
+    context?: TranslationContext): Promise<{text: string; ranges: RestoredTextRange[]}>;
 }
 
 export interface TranscriptionResult {
@@ -18,7 +29,7 @@ export interface AudioContentLoader {
 }
 
 export interface LineReplier {
-  replyText(replyToken: string, text: string): Promise<void>;
+  replyText(replyToken: string, text: string, context?: MentionReplyContext): Promise<void>;
 }
 
 export interface ConversationSettings {
@@ -139,7 +150,7 @@ interface TranslationClient {
 interface MessagingClient {
   replyMessage(request: {
     replyToken: string;
-    messages: Array<{type: "text"; text: string}>;
+    messages: Array<messagingApi.TextMessage | messagingApi.TextMessageV2>;
   }): Promise<unknown>;
 }
 
@@ -323,31 +334,44 @@ export class LineMessagingApiContentLoader implements AudioContentLoader {
 
 export class LineMessagingApiReplier implements LineReplier {
   private client: MessagingClient | undefined;
+  private readonly verifier: GroupMemberVerifier;
 
-  public constructor(
-    private readonly channelAccessToken: string,
-    client?: MessagingClient,
-  ) {
+  public constructor(private readonly channelAccessToken: string, client?: MessagingClient,
+    verifier?: GroupMemberVerifier) {
     this.client = client;
+    this.verifier = verifier ?? new LineGroupMemberVerifier(channelAccessToken);
   }
 
-  public async replyText(replyToken: string, text: string): Promise<void> {
+  public async replyText(replyToken: string, text: string, context?: MentionReplyContext): Promise<void> {
+    const plainMessages = buildReplyMessages(text);
+    let mentions = context?.mentions.slice(0, 20) ?? [];
+    if (mentions.length && context) {
+      const userIds = [...new Set(mentions.map((mention) => mention.userId))];
+      const checks = await Promise.allSettled(userIds.map((userId) =>
+        this.verifier.isMember(context.groupId, userId)));
+      const members = new Set(userIds.filter((_, index) =>
+        checks[index]?.status === "fulfilled" && checks[index].value === true));
+      mentions = mentions.filter((mention) => members.has(mention.userId));
+    }
+    const messages = buildReplyMessages(text, mentions);
     const client = await this.getClient();
-    await client.replyMessage({
-      replyToken,
-      messages: [{type: "text", text}],
-    });
+    try {
+      await client.replyMessage({replyToken, messages});
+    } catch (error: unknown) {
+      const status = error && typeof error === "object" && "status" in error ? error.status : undefined;
+      // Only a definite rejected request is safe to retry. Never retry a timeout or 5xx.
+      if (status === 400 && messages.some((message) => message.type === "textV2")) {
+        try { await client.replyMessage({replyToken, messages: plainMessages}); return; } catch { /* sanitize below */ }
+      }
+      throw new Error("LINE reply could not be delivered.");
+    }
   }
 
   private async getClient(): Promise<MessagingClient> {
     if (!this.client) {
       const {messagingApi} = await import("@line/bot-sdk");
-      this.client = new messagingApi.MessagingApiClient({
-        channelAccessToken: this.channelAccessToken,
-      });
+      this.client = new messagingApi.MessagingApiClient({channelAccessToken: this.channelAccessToken});
     }
-
     return this.client;
   }
 }
-

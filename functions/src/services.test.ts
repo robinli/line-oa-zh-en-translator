@@ -207,6 +207,23 @@ describe("LineMessagingApiContentLoader", () => {
 });
 
 describe("LineMessagingApiReplier", () => {
+  it("splits long transcript plus translation without losing text or splitting emoji", async () => {
+    const replyMessage = vi.fn().mockResolvedValue({});
+    const source = "a".repeat(4999) + "😀" + "中".repeat(2000);
+    await new LineMessagingApiReplier("test", {replyMessage}).replyText("token", source);
+    const messages = replyMessage.mock.calls[0]![0].messages as Array<{text: string}>;
+    expect(messages).toHaveLength(2);
+    expect(messages.every((message) => message.text.length <= 5000)).toBe(true);
+    expect(messages.map((message) => message.text).join("")).toBe(source);
+    expect(messages[1]!.text.startsWith("😀")).toBe(true);
+  });
+
+  it("rejects oversized replies before sending any message", async () => {
+    const replyMessage = vi.fn();
+    await expect(new LineMessagingApiReplier("test", {replyMessage}).replyText("token", "x".repeat(25001)))
+      .rejects.toThrow("too long");
+    expect(replyMessage).not.toHaveBeenCalled();
+  });
   it("sends one text message with the original reply token", async () => {
     const replyMessage = vi.fn().mockResolvedValue({});
     const replier = new LineMessagingApiReplier("unused-test-token", {replyMessage});
