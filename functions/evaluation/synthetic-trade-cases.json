@@ -1,0 +1,147 @@
+[
+  {
+    "id": "floor-price",
+    "source": "我們的底價是 USD 780/MT CNF，先確認客戶能接受的價格。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "required": [
+      "USD",
+      "780",
+      "MT",
+      "CNF"
+    ],
+    "forbidden": [
+      "bottom price",
+      "base price"
+    ]
+  },
+  {
+    "id": "do-not-disclose",
+    "source": "不一定要一次就把我們的底價給客戶。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "required": [],
+    "forbidden": [
+      "all at once",
+      "base price"
+    ]
+  },
+  {
+    "id": "price-inclusion",
+    "source": "Alex brother, we quoted USD 800 CNF. Mira said to add USD 50. This USD 800 includes USD 50, which is 750+50. Now you say USD 780 is your best price. Is this 730+50? Please confirm.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "required": [
+      "Alex",
+      "Mira",
+      "CNF",
+      "750+50",
+      "730+50",
+      "?"
+    ],
+    "forbidden": [
+      "含稅",
+      "佣金",
+      "山牌",
+      "最適合",
+      "底價",
+      "兄弟"
+    ]
+  },
+  {
+    "id": "ex-factory",
+    "source": "Mira 跟我談的是出廠價，運費與其他應付費用要再加上去。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "required": [
+      "Mira",
+      "ex-factory"
+    ],
+    "forbidden": [
+      "cost price",
+      "tax-inclusive"
+    ]
+  },
+  {
+    "id": "freight-reminder",
+    "source": "提醒：運價已漲到2400以上，十一月可能更高。請將運費算進報價。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "required": [
+      "2400"
+    ],
+    "forbidden": [
+      "USD",
+      "US$",
+      "per ton",
+      "per container",
+      "will definitely"
+    ]
+  },
+  {
+    "id": "code-only",
+    "source": "PP-BK?",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "required": [
+      "PP-BK",
+      "?"
+    ],
+    "forbidden": []
+  },
+  {
+    "id": "vietnamese-price",
+    "source": "我們的出廠價是 USD 720，運費另計。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "vi",
+    "required": [
+      "USD",
+      "720",
+      "giá xuất xưởng"
+    ],
+    "forbidden": []
+  },
+  {
+    "id": "vietnamese-to-chinese",
+    "source": "Giá xuất xưởng là USD 720, chưa bao gồm cước vận chuyển.",
+    "sourceLanguage": "vi",
+    "targetLanguage": "zh-TW",
+    "required": [
+      "USD",
+      "720",
+      "出廠價"
+    ],
+    "forbidden": [
+      "已包含運費"
+    ]
+  },
+  {
+    "id": "negated-commission",
+    "source": "The USD 50 is not an agreed commission. Alex must confirm what it covers.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "required": [
+      "USD",
+      "50",
+      "Alex"
+    ],
+    "forbidden": [
+      "已議定的佣金為"
+    ]
+  },
+  {
+    "id": "name-and-party",
+    "source": "Mira told Alex that Mira would confirm the quote. Alex has not accepted it.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "required": [
+      "Mira",
+      "Alex"
+    ],
+    "forbidden": [
+      "你說",
+      "您說",
+      "已接受"
+    ]
+  }
+]

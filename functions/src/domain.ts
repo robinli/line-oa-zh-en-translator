@@ -22,6 +22,7 @@ export interface GroupTextMessageEvent {
   };
   message: {
     type: "text";
+    mention?: unknown;
     id?: string;
     text: string;
   };
@@ -72,6 +73,7 @@ export interface UserTextMessageEvent {
   };
   message: {
     type: "text";
+    mention?: unknown;
     id?: string;
     text: string;
   };

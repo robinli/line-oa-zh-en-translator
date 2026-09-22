@@ -14,6 +14,8 @@ import {
   type TranslationMode,
 } from "./domain.js";
 import {verifyLineSignature} from "./signature.js";
+import {getMentionRanges, excludeTextRanges} from "./message-text.js";
+import {findUserMentions, restoreUserMentions, type MentionAlias, type UserMention} from "./mentions.js";
 import type {
   AudioContentLoader,
   AudioTranscriber,
@@ -21,6 +23,7 @@ import type {
   ConversationSettingsStore,
   LineReplier,
   Translator,
+  TranslationContext,
 } from "./services.js";
 
 export const ENABLE_TEXT_COMMAND = "/啟用文字翻譯";
@@ -83,6 +86,7 @@ export interface WebhookDependencies {
   settingsStore: ConversationSettingsStore;
   ownerUserId: string;
   logger: WebhookLogger;
+  mentionAliases?: readonly MentionAlias[];
   maxMessageLength?: number;
   maxAudioDurationMs?: number;
   maxAudioBytes?: number;
@@ -390,18 +394,58 @@ async function processChatTextMessage(
     return "ignored";
   }
 
-  const languagePair = getTextLanguagePair(text, settings.translationMode);
+  const mentionRanges = getMentionRanges(event.message);
+  const languageText = excludeTextRanges(text, mentionRanges);
+  const languagePair = getTextLanguagePair(languageText, settings.translationMode);
   if (!languagePair) {
     return "ignored";
   }
 
-  const translatedText = await dependencies.translator.translate(
-    text,
-    languagePair.sourceLanguageCode,
-    languagePair.targetLanguageCode,
-  );
-  await dependencies.replier.replyText(event.replyToken, translatedText);
+  const translationArgs: [string, string, string, TranslationContext?] = [
+    text, languagePair.sourceLanguageCode, languagePair.targetLanguageCode,
+  ];
+  const candidates = event.source.type === "group" && dependencies.translator.translateWithRanges ?
+    findUserMentions(event.message, dependencies.mentionAliases ?? []) : [];
+  const protectedRanges = [...mentionRanges];
+  for (const {start, length} of candidates) {
+    if (!protectedRanges.some((range) => range.start === start && range.length === length)) {
+      protectedRanges.push({start, length});
+    }
+  }
+  if (protectedRanges.length) translationArgs.push({protectedRanges});
+  let translatedText: string;
+  let translatedMentions: UserMention[] = [];
+  if (candidates.length && dependencies.translator.translateWithRanges) {
+    const result = await dependencies.translator.translateWithRanges(...translationArgs);
+    translatedText = result.text;
+    translatedMentions = restoreUserMentions(text, result.text, candidates, result.ranges);
+  } else {
+    translatedText = await dependencies.translator.translate(...translationArgs);
+  }
+  if (
+    event.source.type === "group" &&
+    normalizeTranslationText(text) === normalizeTranslationText(translatedText)
+  ) {
+    // An unchanged result may also indicate a translation issue; keep a diagnostic without content.
+    dependencies.logger.warn("Skipped an unchanged translation for a LINE group text message.", {
+      webhookEventId: event.webhookEventId,
+      sourceLanguageCode: languagePair.sourceLanguageCode,
+      targetLanguageCode: languagePair.targetLanguageCode,
+    });
+    return "ignored";
+  }
+
+  if (translatedMentions.length && event.source.type === "group") {
+    await dependencies.replier.replyText(event.replyToken, translatedText,
+      {groupId: event.source.groupId, mentions: translatedMentions});
+  } else {
+    await dependencies.replier.replyText(event.replyToken, translatedText);
+  }
   return "processed";
+}
+
+function normalizeTranslationText(text: string): string {
+  return text.normalize("NFKC").trim().replace(/\s+/gu, " ").replace(/\s*([?？!！,，.。:：;；()（）])\s*/gu, "$1");
 }
 
 function getTextLanguagePair(

@@ -1,12 +1,15 @@
 # LINE 文字翻譯與語音轉文字機器人
 
+> **開始新工作前必讀：** [系統規則與知識總覽](docs/系統規則與知識總覽.md)。本專案規則、商務知識、實作索引、設定與部署注意事項以此為統一入口；修改前先完整閱讀，變更時同步維護。
+
 LINE OA 在群組與一對一聊天室支援中翻英、英翻中、中英雙向、中越雙向翻譯。文字翻譯與語音轉文字可分別啟停。語音先產生逐字稿，再依文字翻譯開關與所選方向決定是否附上翻譯。
 
 ## 技術組合
 
 - Firebase Functions 第 2 代（Node.js 22／TypeScript）
 - LINE Messaging API
-- Google Cloud Translation API v3
+- Vertex AI Gemini 商務翻譯（正式引擎；設定與部署步驟見下方文件）
+- Google Cloud Translation API v3（保留舊引擎選項）
 - Google Cloud Speech-to-Text API v2
 - Cloud Firestore
 - Vitest
@@ -32,9 +35,9 @@ firebase.cmd emulators:start --only functions
 
 ## 雲端設定與部署
 
-1. 建立 Firebase 專案、啟用 Blaze Plan、Cloud Translation API、Cloud Speech-to-Text API，並建立預設 Cloud Firestore database。
+1. 建立 Firebase 專案、啟用 Blaze Plan、Vertex AI API、Cloud Translation API、Cloud Speech-to-Text API，並建立預設 Cloud Firestore database。
 2. 將 Firebase 專案 ID 寫入 `.firebaserc`。
-3. 將 Function 服務帳戶授予 `roles/cloudtranslate.user`、`roles/speech.client` 與 `roles/datastore.user`。
+3. 將 Function 服務帳戶授予 `roles/cloudtranslate.user`、`roles/speech.client` 與 `roles/datastore.user`，另授予只含 `aiplatform.endpoints.predict` 與 `serviceusage.services.use` 的自訂角色供商務翻譯使用；詳見 [商務翻譯優化](docs/商務翻譯優化.md)。
 4. 設定 LINE Secret：
 
    ```powershell
@@ -80,8 +83,9 @@ firebase.cmd emulators:start --only functions
 
 - 模式分別為 `zh-to-en`、`en-to-zh`、`zh-en`、`zh-vi`；沒有模式時使用中英雙向。
 - 文字翻譯關閉時，不翻譯文字訊息，也不翻譯語音逐字稿。
-- 單向模式忽略反方向的文字訊息。文字與語音逐字稿共用方向判斷：含中文視為中文，否則含拉丁字母視為模式中的英文或越南文。中英混合視為中文，英翻中模式不翻譯此類內容。
+- 單向模式忽略反方向的文字訊息。文字先排除原生 @ 顯示名稱；文字正文與語音逐字稿皆以含中文視為中文，否則含拉丁字母視為模式中的英文或越南文；語音逐字稿沒有原生 mention metadata。中英混合視為中文，英翻中模式不翻譯此類內容。
 - 純數字、符號或 Emoji 不呼叫翻譯服務。
+- 群組文字翻譯成功後，若譯文與原文相同（統一全半形相容字元、忽略首尾空白、合併連續空白與換行，並忽略常見標點兩側空白），不回覆並計為 ignored。仍先呼叫翻譯服務，不以英文字母或大寫判斷為代碼；相同譯文只記錄不含訊息內容的診斷日誌，以便排查翻譯異常。一對一及語音回覆維持原有行為。
 - 語音轉文字關閉時，不下載、不辨識、不回覆語音。
 - 語音轉文字開啟時，先辨識逐字稿，再依文字翻譯開關及方向決定是否翻譯。符合條件回覆「逐字稿＋空行＋翻譯」，否則只回覆逐字稿。
 - 語音辨識依模式使用繁體中文＋英文，或繁體中文＋越南文。逐字稿中的指令只作為內容，不執行設定變更。
@@ -93,6 +97,7 @@ firebase.cmd emulators:start --only functions
 - 文字與逐字稿預設限制為 2,000 個 JavaScript 字元，可透過 `MAX_MESSAGE_LENGTH` 調整。
 - 圖片、貼圖、影片、檔案及外部來源音訊不處理。
 - 單筆設定、翻譯、語音辨識或 LINE 回覆失敗時會記錄安全日誌，Webhook 仍回傳 200，避免 redelivery 造成重複回覆。
+- 翻譯服務失敗或譯文未通過驗證時，不回覆失敗提示、不發送未驗證譯文；保留後台錯誤紀錄並繼續處理其他訊息。
 
 ## 將 LINE OA 加入群組
 
@@ -109,8 +114,26 @@ firebase.cmd emulators:start --only functions
 npm.cmd run verify
 ```
 
-自動化測試不會呼叫 LINE 或 Google Cloud，外部服務均使用 mock。目前共有 121 項測試。
+自動化測試不會呼叫 LINE 或 Google Cloud，外部服務均使用 mock。目前共有 271 項測試。
 
 ## 最近部署
 
+2026-09-22 16:59（台灣時間）已部署 linewebhook-00014-yez，翻譯失敗或未通過驗證時改為靜默略過，只記錄後台錯誤；271 項測試、型別檢查與建置通過，正式流量已全部切換。正式檢查曾遇一次模型服務暫時失敗，針對該事件重試後通過，其餘檢查正常。
+
+2026-09-22 16:50（台灣時間）已部署原生 @ 提及版 linewebhook-00013-tif，正式流量已全部切換，Wei bro／Wei brother 對應設定已確認；266 項測試及五項正式 webhook 檢查通過，未向群組發送測試通知。
+
+2026-09-22 16:22（台灣時間）已部署商務翻譯優化，正式版本為 `linewebhook-00012-zeh`，狀態 ACTIVE 且承接全部流量；204 項自動化測試、型別檢查與建置通過，正式環境的有效／無效簽章、中文 @ 名稱方向判斷、模型呼叫與相同譯文不回覆均驗證通過；未向群組成員發送測試訊息。
+
+2026-09-22 已部署群組文字相同譯文不回覆功能，正式服務版本為 `linewebhook-00011-new`，狀態 ACTIVE 且全部流量已切至新版本；134 項自動化測試、型別檢查與建置通過，正式 webhook 簽章空事件回傳 200、failed=0，未向群組發送測試訊息。
+
 2026-09-14 已部署獨立文字／語音開關與四種翻譯模式，正式服務版本為 `linewebhook-00010-vuz`。IN_TW 已設為中翻英，文字翻譯與語音轉文字均啟用；其餘群組設定未變。121 項自動化測試、型別檢查與建置通過，正式服務的簽章空事件與英文忽略測試均無失敗。未向群組發送測試訊息；真人語音辨識品質尚未人工驗收。
+
+## 商務翻譯優化
+
+新增多方貿易翻譯規則、數字與人名保護、術語驗證、品質失敗時靜默略過，以及 @ 中文名稱不影響正文語言的修正。詳細設定、限制、合成評估與部署前置條件見 [商務翻譯優化](docs/商務翻譯優化.md)。商務翻譯已於 2026-09-22 部署；原生 @ 提及亦已部署，詳見下方。
+
+## 原生 @ 提及（已部署）
+
+Wei bro 與 Wei brother 已對應到同一位已指定的 LINE 使用者；翻譯回覆也能保留原訊息的原生 @ 提及，送出前確認對方在目前群組，無法確認時保留純文字。仍遵守原翻譯方向與「相同譯文不回覆」規則。詳見 [LINE 原生提及](docs/LINE原生提及.md)。
+
+Node 22 下 266 項測試與四組 LINE 官方訊息格式驗證通過，未向群組發送測試通知。原生提及初版 linewebhook-00013-tif 已完成正式設定、簽章、方向判斷、模型呼叫與位置還原驗證，目前正式版為 linewebhook-00014-yez；實際通知顯示仍待使用端驗收。
