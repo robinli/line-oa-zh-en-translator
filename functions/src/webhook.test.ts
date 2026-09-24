@@ -140,8 +140,7 @@ describe("processLineWebhook", () => {
 
   it.each([
     ["/啟用文字翻譯", true], ["/停用文字翻譯", false],
-    ["/啟用翻譯", true], ["/停用翻譯", false],
-  ] as const)("handles text command and legacy alias %s", async (command, enabled) => {
+  ] as const)("handles text command %s", async (command, enabled) => {
     await callWebhook({events: [groupTextEvent(command)]});
     expect(settingsStore.setTextTranslationEnabled).toHaveBeenCalledWith("group-id", enabled, ownerUserId);
     expect(settingsStore.setAudioTranscriptionEnabled).not.toHaveBeenCalled();
@@ -151,7 +150,7 @@ describe("processLineWebhook", () => {
     vi.mocked(settingsStore.getSettings).mockResolvedValue({
       textTranslationEnabled: false, audioTranscriptionEnabled: false, translationMode: mode,
     });
-    await callWebhook({events: [groupTextEvent("/啟用翻譯")]});
+    await callWebhook({events: [groupTextEvent("/啟用文字翻譯")]});
     expect(settingsStore.setTextTranslationEnabled).toHaveBeenCalledWith("group-id", true, ownerUserId);
     expect(settingsStore.setAudioTranscriptionEnabled).not.toHaveBeenCalled();
     expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
@@ -162,8 +161,30 @@ describe("processLineWebhook", () => {
   it("lists translation modes followed by independent switches", async () => {
     await callWebhook({events: [groupTextEvent("/翻譯設定")]});
     expect(replier.replyText).toHaveBeenCalledWith("reply-token",
-      "翻譯模式：中英\n文字翻譯：已啟用\n語音轉文字：已啟用\n\n可用指令：\n/中翻英\n/英翻中\n/中英翻譯\n/中越翻譯\n/停用翻譯\n/啟用文字翻譯\n/停用文字翻譯\n/啟用語音轉文字\n/停用語音轉文字");
+      "翻譯模式：中英\n文字翻譯：已啟用\n語音轉文字：已啟用\n\n可用指令：\n/中翻英\n/英翻中\n/中英翻譯\n/中越翻譯\n/啟用文字翻譯\n/停用文字翻譯\n/啟用語音轉文字\n/停用語音轉文字\n/我的ID");
   });
+
+  it.each(["/啟用翻譯", "/停用翻譯", "/翻譯狀態"].flatMap((command) =>
+    [true, false].map((enabled) => ({command, enabled}))))(
+    "ignores retired $command with translation enabled=$enabled", async ({command, enabled}) => {
+      vi.mocked(settingsStore.getSettings).mockResolvedValue({
+        textTranslationEnabled: enabled, audioTranscriptionEnabled: true, translationMode: "zh-en",
+      });
+      const unauthorized = groupTextEvent(command);
+      unauthorized.source.userId = "another-user-id";
+      const result = await callWebhook({events: [
+        groupTextEvent(command), userTextEvent(command), unauthorized,
+        groupTextEvent("  " + command + "\n"), userTextEvent("  " + command + "\n"),
+      ]});
+      expect(result.body).toMatchObject({processed: 0, ignored: 5, failed: 0});
+      expect(settingsStore.getSettings).not.toHaveBeenCalled();
+      expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
+      expect(settingsStore.setTextTranslationEnabled).not.toHaveBeenCalled();
+      expect(settingsStore.setAudioTranscriptionEnabled).not.toHaveBeenCalled();
+      expect(translator.translate).not.toHaveBeenCalled();
+      expect(replier.replyText).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not execute settings commands spoken in audio", async () => {
     vi.mocked(transcriber.transcribe).mockResolvedValue({text: "/停用文字翻譯"});
@@ -294,13 +315,15 @@ describe("processLineWebhook", () => {
     expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
-  it("preserves unchanged translation replies in one-to-one chats", async () => {
+  it("ignores private text before requesting a translation", async () => {
     vi.mocked(translator.translate).mockResolvedValue("260921 BGYD");
 
     const result = await callWebhook({events: [userTextEvent("260921 BGYD")]});
 
-    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("user-reply-token", "260921 BGYD");
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(translator.translate).not.toHaveBeenCalled();
+    expect(settingsStore.getSettings).not.toHaveBeenCalled();
+    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
@@ -374,20 +397,40 @@ describe("processLineWebhook", () => {
     expect(translator.translate).toHaveBeenCalledWith("Xin chào", "vi", "zh-TW");
   });
 
-  it("supports text and audio in a one-to-one conversation", async () => {
-    await callWebhook({
-      events: [
-        userTextEvent("你好"),
-        userAudioEvent(),
-      ],
+  it.each([true, false])("ignores all other private messages even when stored switches are %s", async (enabled) => {
+    vi.mocked(settingsStore.getSettings).mockResolvedValue({
+      textTranslationEnabled: enabled, audioTranscriptionEnabled: enabled, translationMode: "zh-en",
     });
+    const commands = ["/中翻英", "/英翻中", "/中英翻譯", "/中越翻譯", "/啟用文字翻譯",
+      "/停用文字翻譯", "/啟用語音轉文字", "/停用語音轉文字", "/翻譯設定", "/翻譯狀態",
+      "/啟用翻譯", "/停用翻譯", "你好", "Hello", "Xin chào", "PP-BK?", "/我的ID extra", "/我的ID\n你好"];
+    const texts = commands.map((command) => userTextEvent(command));
+    const ownerCommand = userTextEvent("/中越翻譯");
+    ownerCommand.source.userId = ownerUserId;
+    const media = ["image", "sticker", "video", "file"].map((type) => ({
+      ...userTextEvent(""), message: {type, id: "private-media"},
+    }));
+    const events = [...texts, ownerCommand, userAudioEvent(), userAudioEvent(60_000), ...media];
+    const result = await callWebhook({events});
+    expect(result.body).toMatchObject({processed: 0, ignored: events.length, failed: 0});
+    expect(settingsStore.getSettings).not.toHaveBeenCalled();
+    expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
+    expect(settingsStore.setTextTranslationEnabled).not.toHaveBeenCalled();
+    expect(settingsStore.setAudioTranscriptionEnabled).not.toHaveBeenCalled();
+    expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
+    expect(transcriber.transcribe).not.toHaveBeenCalled();
+    expect(translator.translate).not.toHaveBeenCalled();
+    expect(replier.replyText).not.toHaveBeenCalled();
+  });
 
-    expect(settingsStore.getSettings).toHaveBeenCalledWith("user:private-user-id");
-    expect(audioContentLoader.getMessageContent).toHaveBeenCalledWith(
-      "user-audio-message-id",
-      10_000_000,
-    );
-    expect(translator.translate).toHaveBeenCalledTimes(2);
+  it("continues group processing and private ID replies after ignored private messages", async () => {
+    const result = await callWebhook({events: [userTextEvent("/翻譯設定"), userAudioEvent(),
+      groupTextEvent("你好"), userTextEvent(" /我的ID ")]});
+    expect(result.body).toMatchObject({processed: 2, ignored: 2, failed: 0});
+    expect(translator.translate).toHaveBeenCalledExactlyOnceWith("你好", "zh-TW", "en");
+    expect(replier.replyText).toHaveBeenCalledWith("reply-token", "translated");
+    expect(replier.replyText).toHaveBeenCalledWith("user-reply-token", "你的 LINE userId：\nprivate-user-id");
+    expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
   });
 
   it("does not process text or audio while a conversation is disabled", async () => {
@@ -471,7 +514,7 @@ describe("processLineWebhook", () => {
     );
   });
 
-  it.each(["/中翻英", "/英翻中", "/中英翻譯", "/中越翻譯", "/停用翻譯", "/啟用翻譯", "/啟用文字翻譯", "/停用文字翻譯", "/啟用語音轉文字", "/停用語音轉文字"])("rejects unauthorized %s", async (command) => {
+  it.each(["/中翻英", "/英翻中", "/中英翻譯", "/中越翻譯", "/啟用文字翻譯", "/停用文字翻譯", "/啟用語音轉文字", "/停用語音轉文字"])("rejects unauthorized %s", async (command) => {
     const event = groupTextEvent(command);
     event.source.userId = "another-user-id";
 
@@ -484,14 +527,12 @@ describe("processLineWebhook", () => {
     );
   });
 
-  it("lets a private user select their own mode", async () => {
+  it("ignores private mode changes", async () => {
     await callWebhook({events: [userTextEvent("/中越翻譯")]});
 
-    expect(settingsStore.setModeAndEnabled).toHaveBeenCalledWith(
-      "user:private-user-id",
-      "zh-vi",
-      "private-user-id",
-    );
+    expect(settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
+    expect(settingsStore.getSettings).not.toHaveBeenCalled();
+    expect(replier.replyText).not.toHaveBeenCalled();
   });
 
   it("disables without clearing the selected mode", async () => {
@@ -501,7 +542,7 @@ describe("processLineWebhook", () => {
       translationMode: "zh-vi",
     });
 
-    await callWebhook({events: [groupTextEvent("/停用翻譯")]});
+    await callWebhook({events: [groupTextEvent("/停用文字翻譯")]});
 
     expect(settingsStore.setTextTranslationEnabled).toHaveBeenCalledWith(
       "group-id",
@@ -522,7 +563,7 @@ describe("processLineWebhook", () => {
       translationMode: "zh-vi",
     });
 
-    await callWebhook({events: [groupTextEvent("/啟用翻譯")]});
+    await callWebhook({events: [groupTextEvent("/啟用文字翻譯")]});
 
     expect(settingsStore.setTextTranslationEnabled).toHaveBeenCalledWith(
       "group-id",
@@ -544,7 +585,7 @@ describe("processLineWebhook", () => {
 
     await callWebhook({
       events: [
-        groupTextEvent("/翻譯狀態"),
+        groupTextEvent("/翻譯設定"),
         userTextEvent("/翻譯設定"),
       ],
     });
@@ -552,13 +593,9 @@ describe("processLineWebhook", () => {
     expect(replier.replyText).toHaveBeenNthCalledWith(
       1,
       "reply-token",
-      "翻譯模式：中越\n文字翻譯：已啟用\n語音轉文字：已啟用",
+      expect.stringContaining("翻譯模式：中越\n文字翻譯：已啟用\n語音轉文字：已啟用\n\n可用指令："),
     );
-    expect(replier.replyText).toHaveBeenNthCalledWith(
-      2,
-      "user-reply-token",
-      expect.stringContaining("/中英翻譯"),
-    );
+    expect(replier.replyText).toHaveBeenCalledOnce();
   });
 
   it("ignores messages above the configured length limit", async () => {
@@ -661,14 +698,13 @@ describe("processLineWebhook", () => {
       {protectedRanges: [{start: 4, length: mention.length}]});
   });
 
-  it.each(["group text", "group audio", "private text", "private audio"].flatMap((kind) =>
+  it.each(["group text", "group audio"].flatMap((kind) =>
     ["quality", "service"].map((failure) => ({kind, failure}))))(
     "silently handles $failure failure for $kind", async ({kind, failure}) => {
       vi.mocked(translator.translate).mockRejectedValue(failure === "quality" ?
         new TranslationQualityError("protected_value_changed") : new TranslationServiceError());
       const events = {
         "group text": groupTextEvent("報價800美元"), "group audio": groupAudioEvent(),
-        "private text": userTextEvent("報價800美元"), "private audio": userAudioEvent(),
       };
       const result = await callWebhook({events: [events[kind as keyof typeof events]]});
       expect(result.status).toBe(200);
@@ -686,6 +722,24 @@ describe("processLineWebhook", () => {
     expect(result.body).toMatchObject({failed: 1, processed: 1});
     expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "Hello");
   });
+
+  it.each(["OK", "Ok", "ok", " YES ", "No", "no.", "Yes!", "ＯＫ！", "No?", "OK...", "Yes\n"])(
+    "ignores standalone acknowledgement %s in group and private text", async (text) => {
+      const result = await callWebhook({events: [groupTextEvent(text), userTextEvent(text)]});
+      expect(translator.translate).not.toHaveBeenCalled();
+      expect(replier.replyText).not.toHaveBeenCalled();
+      expect(result.body).toMatchObject({processed: 0, ignored: 2, failed: 0});
+    },
+  );
+
+  it.each(["No discount", "Yes, please confirm", "OK USD 100", "No. 123", "Yesterday", "Okay", "OK 👍", "OK&#x20;"])(
+    "still translates content beyond a standalone acknowledgement: %s", async (text) => {
+      const result = await callWebhook({events: [groupTextEvent(text)]});
+      expect(translator.translate).toHaveBeenCalledWith(text, "en", "zh-TW");
+      expect(replier.replyText).toHaveBeenCalledOnce();
+      expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+    },
+  );
 
   function dependencies() {
     return {

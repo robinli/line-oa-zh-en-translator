@@ -1,0 +1,157 @@
+{
+  "date": "2026-09-23",
+  "revision": "linewebhook-00016-xuc",
+  "state": "ACTIVE",
+  "trafficPercent": 100,
+  "runtime": "nodejs22",
+  "function": "lineWebhook",
+  "region": "asia-east1",
+  "engine": "translation-llm",
+  "translationModel": "general/translation-llm",
+  "translationLocation": "us-central1",
+  "glossaryVersion": "v8",
+  "vietnameseEngine": "general/nmt",
+  "checks": [
+    {
+      "name": "signed empty",
+      "status": 200,
+      "elapsedMs": 175,
+      "pass": true
+    },
+    {
+      "name": "invalid signature",
+      "status": 401,
+      "elapsedMs": 71,
+      "pass": true
+    },
+    {
+      "name": "standalone acknowledgement",
+      "status": 200,
+      "elapsedMs": 433,
+      "pass": true
+    },
+    {
+      "name": "one-way skip",
+      "status": 200,
+      "elapsedMs": 77,
+      "pass": true
+    },
+    {
+      "name": "English to Chinese runtime glossary",
+      "status": 200,
+      "elapsedMs": 2924,
+      "pass": true
+    },
+    {
+      "name": "Chinese to English runtime glossary",
+      "status": 200,
+      "elapsedMs": 634,
+      "pass": true
+    },
+    {
+      "name": "native mention runtime translation",
+      "status": 200,
+      "elapsedMs": 795,
+      "pass": true
+    },
+    {
+      "name": "Chinese to Vietnamese NMT",
+      "status": 200,
+      "elapsedMs": 324,
+      "pass": true
+    },
+    {
+      "name": "Vietnamese to Chinese NMT",
+      "status": 200,
+      "elapsedMs": 473,
+      "pass": true
+    },
+    {
+      "name": "private mode command",
+      "status": 200,
+      "elapsedMs": 254,
+      "pass": true
+    },
+    {
+      "name": "private mode persisted and audio preserved",
+      "pass": true
+    },
+    {
+      "name": "twenty native mentions and long message",
+      "status": 200,
+      "elapsedMs": 1255,
+      "pass": true
+    },
+    {
+      "name": "concurrent synthetic translation 0",
+      "status": 200,
+      "elapsedMs": 528,
+      "pass": true
+    },
+    {
+      "name": "concurrent synthetic translation 2",
+      "status": 200,
+      "elapsedMs": 587,
+      "pass": true
+    },
+    {
+      "name": "concurrent synthetic translation 1",
+      "status": 200,
+      "elapsedMs": 681,
+      "pass": true
+    }
+  ],
+  "correlatedLogs": [
+    {
+      "name": "English to Chinese runtime glossary",
+      "pass": true
+    },
+    {
+      "name": "Chinese to English runtime glossary",
+      "pass": true
+    },
+    {
+      "name": "native mention runtime translation",
+      "pass": true
+    },
+    {
+      "name": "Chinese to Vietnamese NMT",
+      "pass": true
+    },
+    {
+      "name": "Vietnamese to Chinese NMT",
+      "pass": true
+    },
+    {
+      "name": "private mode command",
+      "pass": true
+    },
+    {
+      "name": "twenty native mentions and long message",
+      "pass": true
+    },
+    {
+      "name": "concurrent synthetic translation 0",
+      "pass": true
+    },
+    {
+      "name": "concurrent synthetic translation 2",
+      "pass": true
+    },
+    {
+      "name": "concurrent synthetic translation 1",
+      "pass": true
+    }
+  ],
+  "syntheticDocumentsCleaned": 4,
+  "realTestMessagesSent": 0,
+  "iamChanged": false,
+  "aliasesPreserved": true,
+  "unitTests": 461,
+  "qualityReview": "tllm-v12-release-review.json",
+  "limitations": [
+    "Phone-side LINE rendering and notification are not manually accepted by a human.",
+    "Short concurrency smoke test, not a load SLA or long-term availability study.",
+    "Rejected translations remain silent; finite semantic checks cannot guarantee universal correctness."
+  ]
+}

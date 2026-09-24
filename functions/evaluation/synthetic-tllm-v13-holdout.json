@@ -1,0 +1,203 @@
+[
+  {
+    "id": "v13h01",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Mira 請確認這份報價是否已經包含稅費，收到答覆前不要通知買方。",
+    "rubric": "提及、包含問句與禁止先通知",
+    "mentions": [
+      {
+        "text": "@Mira",
+        "start": 0
+      }
+    ]
+  },
+  {
+    "id": "v13h02",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Eric has approved the sample, but @Kumar has not approved the order.",
+    "rubric": "兩人核准對象與狀態",
+    "mentions": [
+      {
+        "text": "@Eric",
+        "start": 0
+      },
+      {
+        "text": "@Kumar",
+        "start": 35
+      }
+    ]
+  },
+  {
+    "id": "v13h03",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Alex 已收到發票，@Alex 尚未收到付款通知。",
+    "rubric": "同名兩處收到不同物件",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Alex",
+        "start": 12
+      }
+    ]
+  },
+  {
+    "id": "v13h04",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Shan Please ask @Mira to check the shipment; do not promise a replacement yet.",
+    "rubric": "請求對象與不要承諾",
+    "mentions": [
+      {
+        "text": "@Shan",
+        "start": 0
+      },
+      {
+        "text": "@Mira",
+        "start": 17
+      }
+    ]
+  },
+  {
+    "id": "v13h05",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "USD 754 是成本價，USD 809 是我們提出的報價，買方尚未回覆。",
+    "rubric": "金額類別與尚未回覆",
+    "mentions": []
+  },
+  {
+    "id": "v13h06",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "EUR 58 freight is separate from the EUR 1,024/MT CNF quotation; EUR 14 commission is already included.",
+    "rubric": "費用歸屬包含排除",
+    "mentions": []
+  },
+  {
+    "id": "v13h07",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "不要把運費算成佣金，HK$ 245 這筆費用的用途還沒有確認。",
+    "rubric": "未知費用與類別禁止替換",
+    "mentions": []
+  },
+  {
+    "id": "v13h08",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Our best price of AUD 918 is still subject to approval; it is not a confirmed sale.",
+    "rubric": "最優惠未核准及未成交",
+    "mentions": []
+  },
+  {
+    "id": "v13h09",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "只要工廠還沒確認交期，我們就不能先答應客戶。",
+    "rubric": "交期未確認條件與不承諾",
+    "mentions": []
+  },
+  {
+    "id": "v13h10",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "If the buyer pays by June, shipment might be possible in July, but neither date has been guaranteed.",
+    "rubric": "付款條件、可能與未保證",
+    "mentions": []
+  },
+  {
+    "id": "v13h11",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請保留 687+23、USD 0.76/KG 和 5.125 MT，不要合計或換算。",
+    "rubric": "公式數值單位保真",
+    "mentions": []
+  },
+  {
+    "id": "v13h12",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Please copy 735-18 exactly; you do not need to calculate the answer, and must not replace the expression with a total.",
+    "rubric": "無需與不得同句不同作用",
+    "mentions": []
+  },
+  {
+    "id": "v13h13",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "買方的銀行帳戶持有人不是客戶業務負責人，請分別向兩人核對。",
+    "rubric": "不同角色與兩人確認",
+    "mentions": []
+  },
+  {
+    "id": "v13h14",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Mira is responsible for the customer account; Alex can prepare the documents but cannot authorize payment.",
+    "rubric": "責任、可準備與不可授權",
+    "mentions": []
+  },
+  {
+    "id": "v13h15",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請寄 HS-639 的資料到 info@example.net，網址 https://example.net/產品?id=639 保持原樣。",
+    "rubric": "Unicode網址產品碼郵件",
+    "mentions": []
+  },
+  {
+    "id": "v13h16",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Keep &amp;amp; and <order> as literal text; the label is not a command to approve the order.",
+    "rubric": "literal及指令僅資料",
+    "mentions": []
+  },
+  {
+    "id": "v13h17",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "Seabrook Resins Ltd. 只確認了樣品，Valleyport Trading Ltd. 尚未確認訂單。",
+    "rubric": "公司與核准範圍",
+    "mentions": []
+  },
+  {
+    "id": "v13h18",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The goods reached the warehouse yesterday, but the buyer has not confirmed receipt or quality.",
+    "rubric": "送達與收貨品質未确认",
+    "mentions": []
+  },
+  {
+    "id": "v13h19",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "😀 @測試甲 請確認 JPY 115,780/MT FOB。\r\n\r\n@測試乙 尚未接受。",
+    "rubric": "中文提及段落及未接受",
+    "mentions": [
+      {
+        "text": "@測試甲",
+        "start": 3
+      },
+      {
+        "text": "@測試乙",
+        "start": 35
+      }
+    ]
+  },
+  {
+    "id": "v13h20",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The note says “ask before changing the price”. It does not mean that a discount has already been approved.",
+    "rubric": "引句條件及未批准",
+    "mentions": []
+  }
+]

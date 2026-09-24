@@ -4,14 +4,15 @@
   "private": true,
   "scripts": {
     "build": "npm --prefix functions run build",
+    "evaluate:openai": "npm --prefix functions run evaluate:openai",
     "test": "npm --prefix functions test",
     "check": "npm --prefix functions run check",
     "verify": "npm --prefix functions run verify",
     "emulators": "firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions"
+    "deploy": "firebase deploy --only functions:lineWebhook",
+    "evaluate:tllm": "npm --prefix functions run evaluate:tllm"
   },
   "engines": {
     "node": "22"
   }
 }
-

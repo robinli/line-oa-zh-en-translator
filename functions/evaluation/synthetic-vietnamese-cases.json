@@ -1,0 +1,84 @@
+[
+  {
+    "id": "zh-schedule",
+    "source": "我們明天下午三點在車站見面。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "vi"
+  },
+  {
+    "id": "zh-negation",
+    "source": "我還沒有收到你的訊息，請再傳一次。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "vi"
+  },
+  {
+    "id": "zh-condition",
+    "source": "如果明天下雨，我們就改到星期五再去。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "vi"
+  },
+  {
+    "id": "zh-question",
+    "source": "你吃飯了嗎？要不要一起吃晚餐？",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "vi"
+  },
+  {
+    "id": "vi-negation",
+    "source": "Tôi chưa nhận được tin nhắn của bạn. Vui lòng gửi lại.",
+    "sourceLanguage": "vi",
+    "targetLanguage": "zh-TW"
+  },
+  {
+    "id": "vi-schedule",
+    "source": "Hẹn gặp lại vào chiều mai.",
+    "sourceLanguage": "vi",
+    "targetLanguage": "zh-TW"
+  },
+  {
+    "id": "vi-request",
+    "source": "Bạn có thể giúp tôi mở cửa được không?",
+    "sourceLanguage": "vi",
+    "targetLanguage": "zh-TW"
+  },
+  {
+    "id": "vi-condition",
+    "source": "Nếu trời mưa, chúng ta sẽ ở nhà.",
+    "sourceLanguage": "vi",
+    "targetLanguage": "zh-TW"
+  },
+  {
+    "id": "zh-mention",
+    "source": "@小林 請明天上午九點再提醒我。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "vi",
+    "mentions": [
+      "@小林"
+    ]
+  },
+  {
+    "id": "vi-mention",
+    "source": "Cảm ơn @Lan. Hẹn gặp lại.",
+    "sourceLanguage": "vi",
+    "targetLanguage": "zh-TW",
+    "mentions": [
+      "@Lan"
+    ]
+  },
+  {
+    "id": "zh-repeat-mention",
+    "source": "😀 @小林 請先聯絡 @小林，謝謝。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "vi",
+    "mentions": [
+      "@小林",
+      "@小林"
+    ]
+  },
+  {
+    "id": "zh-paragraph",
+    "source": "今天先休息。\n明天再一起討論。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "vi"
+  }
+]

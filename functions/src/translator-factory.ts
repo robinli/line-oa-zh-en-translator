@@ -1,4 +1,5 @@
 import {BusinessTranslator, VertexTextGenerator} from "./business-translator.js";
+import {TranslationLlmTranslator, type TranslationLlmMetric} from "./translation-llm-translator.js";
 import {GoogleCloudTranslator, type Translator} from "./services.js";
 
 export interface TranslationConfiguration {
@@ -8,10 +9,21 @@ export interface TranslationConfiguration {
   location: string;
   protectedNames: string;
   onValidationRetry?: (reason: string) => void;
+  translationLlm?: {location: string; glossaryZhEn: string; glossaryEnZh: string};
+  onTranslationMetric?: (metric: TranslationLlmMetric) => void;
 }
 
 export function createTranslator(config: TranslationConfiguration): Translator {
   if (config.engine === "google") return new GoogleCloudTranslator(config.projectId);
+  if (config.engine === "translation-llm") {
+    if (!config.translationLlm) throw new Error("Missing Translation LLM configuration.");
+    return new TranslationLlmTranslator({
+      projectId: config.projectId,
+      ...config.translationLlm,
+      protectedNames: config.protectedNames.split(",").map(name => name.trim()).filter(Boolean),
+      onMetric: config.onTranslationMetric,
+    });
+  }
   if (config.engine !== "business") throw new Error("Unknown translation engine.");
   return new BusinessTranslator(new VertexTextGenerator({
     projectId: config.projectId,

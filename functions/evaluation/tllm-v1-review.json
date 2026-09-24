@@ -1,0 +1,543 @@
+{
+  "evaluatedAt": "2026-09-23T11:13:58.217Z",
+  "releaseGate": "blocked",
+  "reviewer": "Codex; human business acceptance pending",
+  "model": "general/translation-llm",
+  "glossaryMode": "standard-html",
+  "rounds": 3,
+  "cases": 56,
+  "evaluations": 168,
+  "mechanicalAccepted": 147,
+  "mechanicalRejected": 21,
+  "unblockedCriticalSemanticCases": [
+    "h04",
+    "h12"
+  ],
+  "apiCalls": 186,
+  "providerFailures": 0,
+  "latencyMs": {
+    "p50": 461,
+    "p95": 904
+  },
+  "inputCharacters": 43269,
+  "outputCharacters": 44283,
+  "estimatedUsd": 0.87552,
+  "noCallCodeOnlyEvaluations": 3,
+  "allRepeatedResultsIdentical": true,
+  "evidenceFile": ".local/tllm-evaluation/2026-09-23T11-13-58-217Z.json",
+  "hashes": {
+    "functions/src/translation-llm-translator.ts": "0211a4f8af5c64ddcba90db7884e91cf30aba462e24a7235f113c41154162ebf",
+    "functions/src/trade-policy.ts": "05b5748e9ba102e5aa1741a2edd5fd804ab1496937ba21890a5de2595b8ef018",
+    "functions/glossaries/zh-en-v1.tsv": "893128528323b39432f39c6adec65344fd889761852b8097faa5b230d7eae307",
+    "functions/glossaries/en-zh-v1.tsv": "aa3b2525134b426155b09a06c8d1e75b1b40d843ce2158785497fc8f16b4a942",
+    "functions/evaluation/synthetic-trade-cases.json": "a92e949206055a4832032a4464978028113a59994336a4a4153be077c5058b3e",
+    "functions/evaluation/synthetic-alternative-cases.json": "9ee8c13e3dc658d94856918545d6e7d4fd91fdf3a2710caaa4a107ac05864358",
+    "functions/evaluation/synthetic-tllm-holdout.json": "df9655c0dcffb0e9aeeb14c03d1a14cb0a8623dd4e19200bd0205fd4a0be7bff"
+  },
+  "reviews": [
+    {
+      "id": "floor-price",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "do-not-disclose",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "price-inclusion",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 0,
+      "review": "品質檢查拒絕，不能視為成功翻譯。",
+      "status": "rejected"
+    },
+    {
+      "id": "ex-factory",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "freight-reminder",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "code-only",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "negated-commission",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 0,
+      "review": "品質檢查拒絕，不能視為成功翻譯。",
+      "status": "rejected"
+    },
+    {
+      "id": "name-and-party",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 0,
+      "review": "品質檢查拒絕，不能視為成功翻譯。",
+      "status": "rejected"
+    },
+    {
+      "id": "price-concepts",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "best-price-not-floor",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "sales-account-owner",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "bank-account-owner-control",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "modality-can-should-must",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 0,
+      "review": "品質檢查拒絕，不能視為成功翻譯。",
+      "status": "rejected"
+    },
+    {
+      "id": "conditional-commitment",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "incoterm-ambiguity",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "numeric-fidelity",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "code-contact",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "native-mention",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "same-name-mentions",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "alias-address",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 0,
+      "review": "品質檢查拒絕，不能視為成功翻譯。",
+      "status": "rejected"
+    },
+    {
+      "id": "literal-entities",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "instruction-as-data",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "paragraphs",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "uppercase-business",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "distinct-names",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 0,
+      "review": "品質檢查拒絕，不能視為成功翻譯。",
+      "status": "rejected"
+    },
+    {
+      "id": "short-price-confirmation",
+      "set": "regression",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h01",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h02",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h03",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h04",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "重大語義錯誤：not required to approve 的否定消失，輸出變成 Alex 核准該報價；機械驗證沒有攔截。",
+      "status": "critical_error"
+    },
+    {
+      "id": "h05",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h06",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h07",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h08",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "用詞重複：「該客戶客戶業務負責人」；角色未發現重大偏差。",
+      "status": "needs_review"
+    },
+    {
+      "id": "h09",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h10",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h11",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "繁體要求未完全符合：譯文混入簡體「这」；語義未發現重大偏差。",
+      "status": "needs_review"
+    },
+    {
+      "id": "h12",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "重大資料關係錯誤：3.25 MT 的單位移到 USD 1,045.70，3.25 與 0.85% 相鄰；原值皆在仍不代表配對正確。",
+      "status": "critical_error"
+    },
+    {
+      "id": "h13",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h14",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 0,
+      "review": "品質檢查拒絕，不能視為成功翻譯。",
+      "status": "rejected"
+    },
+    {
+      "id": "h15",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h16",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h17",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h18",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h19",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h20",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h21",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h22",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h23",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "客戶業務負責人被表述為 sales representative in charge of this client，需業務使用者確認角色用語。",
+      "status": "needs_review"
+    },
+    {
+      "id": "h24",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h25",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h26",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h27",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h28",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h29",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    },
+    {
+      "id": "h30",
+      "set": "holdout",
+      "rounds": 3,
+      "distinctResults": 1,
+      "mechanicalAccepted": 3,
+      "review": "Codex 逐句檢視未發現重大語义偏差；不是業務人工驗收。",
+      "status": "reviewed_no_major_issue"
+    }
+  ]
+}
