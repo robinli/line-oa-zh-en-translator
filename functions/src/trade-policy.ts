@@ -83,6 +83,7 @@ export function prepareTradeText(
   input: string,
   names: readonly string[] = DEFAULT_PROTECTED_NAMES,
   protectedRanges: ReadonlyArray<{start: number; length: number}> = [],
+  protectLiteralMarkup = false,
 ): PreparedTradeText {
   // LINE sends literal text. Do not HTML-decode it: an entity may be intentional product data.
   const spans: Span[] = [];
@@ -97,11 +98,15 @@ export function prepareTradeText(
       spans.push({start: match.index, end: match.index + match[0].length, kind, priority});
     }
   }
-  collect(/https?:\/\/[^\s<>]+|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/gu, "contact", 100);
+  collect(/https?:\/\/[^\s<>，。；！？、：]+|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/gu, "contact", 100);
   for (const match of input.matchAll(CODES)) {
     if (/\d/u.test(match[0]) || PRODUCT_CODES.some((code) => code === match[0])) {
       spans.push({start: match.index, end: match.index + match[0].length, kind: "product-code", priority: 90});
     }
+  }
+  if (protectLiteralMarkup) {
+    collect(/&amp;(?:amp;)*(?:(?:[A-Za-z][A-Za-z0-9]*|#\d+|#x[0-9a-f]+);)?|&(?:[A-Za-z][A-Za-z0-9]*|#\d+|#x[0-9a-f]+);/giu, "literal-markup", 99);
+    collect(/<\/?[A-Za-z][^<>\r\n]*>/giu, "literal-markup", 105);
   }
   collect(FORMULAS, "formula-or-date", 80);
   collect(TRADE_TERMS, "trade-term", 70);

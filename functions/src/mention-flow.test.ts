@@ -85,10 +85,12 @@ describe("translation to native mention integration", () => {
     expect(replyMessage.mock.calls[0]![0].messages).toEqual([{type: "text", text: "Wei, 請確認。"}]);
     expect(isMember).not.toHaveBeenCalled();
   });
-  it("never adds mentions to a private chat", async () => {
-    const {call, replyMessage, isMember} = setup();
-    await call("Wei brother, Please confirm.", undefined, true);
-    expect(replyMessage.mock.calls[0]![0].messages[0].type).toBe("text");
+  it("ignores private text without translating, replying or checking members", async () => {
+    const {call, replyMessage, isMember, generate} = setup();
+    expect((await call("Wei brother, Please confirm.", undefined, true)).body)
+      .toMatchObject({processed: 0, ignored: 1, failed: 0});
+    expect(replyMessage).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
     expect(isMember).not.toHaveBeenCalled();
   });
   it("keeps single-direction English ignore behavior with Chinese native names", async () => {

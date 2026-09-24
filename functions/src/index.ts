@@ -10,6 +10,8 @@ import {
   LineMessagingApiContentLoader,
 } from "./services.js";
 import {processLineWebhook} from "./webhook.js";
+import {createTranslationProgramRouter} from "./translation-program.js";
+import {VietnameseNmtTranslator} from "./vietnamese-nmt-translator.js";
 import {createTranslator} from "./translator-factory.js";
 import {DEFAULT_PROTECTED_NAMES} from "./trade-policy.js";
 import {parseMentionAliases, type MentionAlias} from "./mentions.js";
@@ -26,10 +28,37 @@ const mentionAliases = defineString("LINE_MENTION_ALIASES_JSON", {default: "[]"}
 const translationEngine = defineString("TRANSLATION_ENGINE", {default: "business"});
 const translationModel = defineString("TRANSLATION_MODEL", {default: "gemini-3.5-flash"});
 const translationLocation = defineString("TRANSLATION_LOCATION", {default: "global"});
+const translationLlmLocation = defineString("TRANSLATION_LLM_LOCATION", {default: "us-central1"});
+const translationLlmGlossaryZhEn = defineString("TRANSLATION_LLM_GLOSSARY_ZH_EN", {default: "trade-zh-en-v8"});
+const translationLlmGlossaryEnZh = defineString("TRANSLATION_LLM_GLOSSARY_EN_ZH", {default: "trade-en-zh-v8"});
 const protectedNames = defineString("TRADE_PROTECTED_NAMES", {default: DEFAULT_PROTECTED_NAMES.join(",")});
 
 const firebaseApp = getApps()[0] ?? initializeApp();
 const conversationSettingsStore = new FirestoreConversationSettingsStore(getFirestore(firebaseApp));
+
+const getTranslationProgram = createTranslationProgramRouter(() => {
+  let aliases: MentionAlias[] = [];
+  try { aliases = parseMentionAliases(mentionAliases.value()); } catch {
+    logger.warn("LINE mention aliases are disabled because configuration is invalid.");
+  }
+  return {
+    translator: createTranslator({
+      engine: translationEngine.value(),
+      projectId: projectID.value(),
+      model: translationModel.value(),
+      location: translationLocation.value(),
+      protectedNames: protectedNames.value(),
+      translationLlm: {
+        location: translationLlmLocation.value(),
+        glossaryZhEn: "projects/" + projectID.value() + "/locations/" + translationLlmLocation.value() + "/glossaries/" + translationLlmGlossaryZhEn.value(),
+        glossaryEnZh: "projects/" + projectID.value() + "/locations/" + translationLlmLocation.value() + "/glossaries/" + translationLlmGlossaryEnZh.value(),
+      },
+      onTranslationMetric: metric => logger.info("Translation LLM request completed.", {...metric}),
+      onValidationRetry: (reason) => logger.warn("Retrying trade translation validation.", {reason}),
+    }),
+    mentionAliases: aliases,
+  };
+}, () => new VietnameseNmtTranslator(projectID.value()));
 
 export const lineWebhook = onRequest(
   {
@@ -42,10 +71,6 @@ export const lineWebhook = onRequest(
     secrets: [lineChannelSecret, lineChannelAccessToken, lineOwnerUserId],
   },
   async (request, response) => {
-    let aliases: MentionAlias[] = [];
-    try { aliases = parseMentionAliases(mentionAliases.value()); } catch {
-      logger.warn("LINE mention aliases are disabled because configuration is invalid.");
-    }
     const signatureHeader = request.header("x-line-signature");
     const result = await processLineWebhook(
       {
@@ -55,20 +80,12 @@ export const lineWebhook = onRequest(
       },
       {
         channelSecret: lineChannelSecret.value(),
-        translator: createTranslator({
-          engine: translationEngine.value(),
-          projectId: projectID.value(),
-          model: translationModel.value(),
-          location: translationLocation.value(),
-          protectedNames: protectedNames.value(),
-          onValidationRetry: (reason) => logger.warn("Retrying trade translation validation.", {reason}),
-        }),
+        getTranslationProgram,
         transcriber: new GoogleCloudSpeechTranscriber(projectID.value()),
         audioContentLoader: new LineMessagingApiContentLoader(
           lineChannelAccessToken.value(),
         ),
         replier: new LineMessagingApiReplier(lineChannelAccessToken.value()),
-        mentionAliases: aliases,
         settingsStore: conversationSettingsStore,
         ownerUserId: lineOwnerUserId.value(),
         logger,

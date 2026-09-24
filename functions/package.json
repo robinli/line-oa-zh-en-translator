@@ -12,7 +12,13 @@
     "test": "vitest run src",
     "test:watch": "vitest src",
     "verify": "node scripts/verify.mjs",
-    "evaluate:trade": "node scripts/evaluate-trade.mjs"
+    "evaluate:trade": "node scripts/evaluate-trade.mjs",
+    "evaluate:openai": "node scripts/evaluate-openai.mjs",
+    "evaluate:vietnamese": "node scripts/evaluate-vietnamese.mjs",
+    "evaluate:tllm": "node scripts/evaluate-tllm.mjs",
+    "provision:tllm-glossaries": "node scripts/provision-tllm-glossaries.mjs",
+    "provision:tllm-glossaries:v2": "node scripts/provision-tllm-glossaries-v2.mjs",
+    "provision:tllm-glossaries:v5": "node scripts/provision-tllm-glossaries-v5.mjs"
   },
   "dependencies": {
     "@google-cloud/speech": "^8.0.1",
@@ -20,7 +26,8 @@
     "@line/bot-sdk": "11.2.0",
     "firebase-admin": "14.2.0",
     "firebase-functions": "7.3.2",
-    "google-auth-library": "10.9.1"
+    "google-auth-library": "10.9.1",
+    "opencc-js": "1.4.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

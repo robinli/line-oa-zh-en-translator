@@ -1,0 +1,258 @@
+[
+  {
+    "id": "pack-rough-packaging",
+    "category": "packaging",
+    "source": "If you can make 20kg bags is better. With norva name.\n\nIf can't make put in FIBC bulk bag. 600 kg each bag",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "優先20kg小袋，norva名稱；不可行才用每袋600kg的FIBC，保留條件與兩種重量歸屬。"
+  },
+  {
+    "id": "pack-clear-packaging",
+    "category": "packaging",
+    "source": "Prefer 20 kg bags bearing the Norva name. If these are unavailable, use FIBC bulk bags, 600 kg per bag.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "優先及備案，20kg小袋、600kg大袋不可互換。"
+  },
+  {
+    "id": "pack-zh-packaging",
+    "category": "packaging",
+    "source": "若可行，優先使用印有 Norva 名稱的20公斤小袋；若做不到，再改用每袋600公斤的 FIBC 大袋。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "rubric": "保留優先及備案，名稱、兩種包裝重量。"
+  },
+  {
+    "id": "pack-decimal-units",
+    "category": "packaging",
+    "source": "The sample bags contain 2.5 kg each; the FIBC bags contain 0.6 MT each. Do not convert the units.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "2.5kg與0.6MT分屬樣品袋與FIBC，禁止單位換算。"
+  },
+  {
+    "id": "pack-repeated-weight",
+    "category": "packaging",
+    "source": "The red sample bag is 20 kg, and the blue sample bag is also 20 kg. Only the red bag needs a label.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "兩筆相同20kg分別對應兩袋；只紅袋需標籤。"
+  },
+  {
+    "id": "pack-negative-packaging",
+    "category": "packaging",
+    "source": "Do not use 20 kg bags. Use 600 kg FIBC bags instead.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "不得用20kg；應用600kg；不可顛倒否定。"
+  },
+  {
+    "id": "pack-reverse-condition",
+    "category": "packaging",
+    "source": "Use 600 kg FIBC bags only if the buyer rejects the 20 kg bags. Otherwise, keep the 20 kg bags.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "只有拒絕小袋才用大袋，否則保留小袋。"
+  },
+  {
+    "id": "pack-tentative-packaging",
+    "category": "packaging",
+    "source": "We may be able to supply 20 kg bags, but we have not confirmed availability or promised to use them.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "可能可以，未確認且未承諾。"
+  },
+  {
+    "id": "pack-net-gross",
+    "category": "packaging",
+    "source": "Each FIBC bag holds 600 kg net. The empty bag weighs 3 kg; its weight is not included in the net weight.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "600kg淨重，3kg空袋重不包含在淨重內。"
+  },
+  {
+    "id": "pack-do-not-calculate",
+    "category": "packaging",
+    "source": "The total is 600 kg, packed in 20 kg bags. Keep these figures; do not calculate the number of bags.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "保留600與20，不自行計算新增30袋。"
+  },
+  {
+    "id": "pack-different-units",
+    "category": "packaging",
+    "source": "The trial uses 20 lb bags, not 20 kg bags. Do not convert pounds to kilograms.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "磅與公斤不混淆，不換算。"
+  },
+  {
+    "id": "pack-packaging-fee",
+    "category": "packaging",
+    "source": "The product uses 20 kg bags. USD 0.35 per bag is an additional packing charge, not freight.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "每袋另加USD0.35包裝費，非運費。"
+  },
+  {
+    "id": "pack-label-condition",
+    "category": "packaging",
+    "source": "Print Norva on the label only, not directly on the 20 kg bag. The 600 kg FIBC needs no label.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "Norva只印標籤不印袋身，大袋不用標籤。"
+  },
+  {
+    "id": "pack-quote-scope",
+    "category": "packaging",
+    "source": "Reply only to \"Can you supply 20 kg bags?\" Do not confirm the separate request for 600 kg FIBC bags.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "僅回覆引號問題，不確認另一600kg要求。"
+  },
+  {
+    "id": "pack-role-approval",
+    "category": "packaging",
+    "source": "Kumar suggested 20 kg bags, but Kumaran has not approved them. Wei proposed 600 kg FIBC bags as an alternative.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "三人與不同承諾、包裝的關係正確，不能交換人名。"
+  },
+  {
+    "id": "pack-zh-negative",
+    "category": "packaging",
+    "source": "不要使用每袋20公斤的小袋；若客戶同意，才改用每袋600公斤的大袋，目前尚未確認。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "rubric": "否定小袋，大袋受客戶同意條件限制且未確認。"
+  },
+  {
+    "id": "pack-zh-net-gross",
+    "category": "packaging",
+    "source": "每袋淨重600公斤，毛重603公斤；不要把兩者互換，也不要自行換算成公噸。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "rubric": "淨重600毛重603；禁止換算或互換。"
+  },
+  {
+    "id": "pack-split-paragraphs",
+    "category": "packaging",
+    "source": "Packing option: 20 kg bags.\n\nAlternative: 600 kg FIBC bags.\n\nNeither option includes labels or an agreed packing charge.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "三段；兩種方案皆未包含標籤或已議定包裝費。"
+  },
+  {
+    "id": "price-concepts",
+    "source": "底價是 USD 710，成本價是 USD 680，出廠價是 USD 725，基礎價格是 USD 700；這些都不是已成交價格。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "rubric": "區分底價、成本價、出廠價及基礎價格，保留四個金額與尚未成交。",
+    "category": "business-regression"
+  },
+  {
+    "id": "best-price-not-floor",
+    "source": "Our best price is USD 815. This is an offer, not a confirmed agreement.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "best price 為最優惠報價，不加強成最低價；保留提議與未確認。",
+    "category": "business-regression"
+  },
+  {
+    "id": "sales-account-owner",
+    "source": "Mira is the account owner for this customer. Alex is the sales representative; Mira must approve the quotation.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "account owner 為客戶業務負責人，非帳戶所有者；保留 Mira 的核准責任。",
+    "category": "business-regression"
+  },
+  {
+    "id": "bank-account-owner-control",
+    "source": "Mira is the owner of this bank account. Alex cannot withdraw money without Mira's approval.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "銀行帳戶情境使用帳戶持有人；保留否定與同意條件，不套業務角色。",
+    "category": "business-regression"
+  },
+  {
+    "id": "modality-can-should-must",
+    "source": "Instead of only passing on information, a sales representative can do more. Alex should ask the buyer, but Mira must approve the price.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "can 為可以，不變成不應只是或必須；should 建議、must 義務；保留角色。",
+    "category": "business-regression"
+  },
+  {
+    "id": "conditional-commitment",
+    "source": "如果買方同意付款條件，我們可能可以在十月出貨，但尚未承諾，也還沒有收到訂金。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "rubric": "保留條件、可能、未承諾及未收訂金，不增加確定出貨。",
+    "category": "business-regression"
+  },
+  {
+    "id": "incoterm-ambiguity",
+    "source": "USD 845 CNF is our quotation. Add USD 35 separately; we have not confirmed what that amount covers. Tax is not included.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "rubric": "保留 CNF；額外 USD 35 不命名為運費、佣金；保留不含稅。",
+    "category": "business-regression"
+  },
+  {
+    "id": "numeric-fidelity",
+    "source": "請核對 USD 1,234.50、2.5 MT、1.25% 和 -0.75，算式 710+35 不要改成合計。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "rubric": "數值、小數、符號與 710+35 完整保留，不計算。",
+    "category": "business-regression"
+  },
+  {
+    "id": "code-contact",
+    "source": "請寄 PP-BK、PH-BK 與 QA-8472 的報價到 sales@example.com，規格在 https://example.com/spec?id=42。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "rubric": "三個代碼、郵件及完整網址逐字保留。",
+    "category": "business-regression"
+  },
+  {
+    "id": "native-mention",
+    "source": "@A1-陳測試 請先核對樣品報價，確認後再通知我。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "mentions": [
+      {
+        "text": "@A1-陳測試",
+        "occurrence": 0
+      }
+    ],
+    "rubric": "提及顯示名稱不翻，正文翻英文；提及還原位置可供原生 @ 使用。",
+    "category": "business-regression"
+  },
+  {
+    "id": "same-name-mentions",
+    "source": "@Alex told @Alex that the first person would confirm the price; the second person has not accepted it.",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "occurrence": 0
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 1
+      }
+    ],
+    "rubric": "同名兩次提及各自唯一還原位置；保留第一位確認、第二位尚未接受。",
+    "category": "business-regression"
+  },
+  {
+    "id": "literal-entities",
+    "source": "請原樣保留字串 &#x20;、&amp; 與 <price>；不要把它們當成格式指令。",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "rubric": "原文真的含有 HTML entity 及尖括號，逐字保留，不解碼或刪除。",
+    "category": "business-regression"
+  }
+]

@@ -4,15 +4,16 @@ import {
   DEFAULT_MAX_MESSAGE_LENGTH,
   containsChinese,
   containsLatin,
-  isChatAudioMessageEvent,
-  isChatTextMessageEvent,
+  isGroupAudioMessageEvent,
+  isGroupTextMessageEvent,
   isGroupJoinEvent,
   isUserTextMessageEvent,
-  type ChatAudioMessageEvent,
-  type ChatTextMessageEvent,
+  type GroupAudioMessageEvent,
+  type GroupTextMessageEvent,
   type LineWebhookBody,
   type TranslationMode,
 } from "./domain.js";
+import type {TranslationProgram} from "./translation-program.js";
 import {verifyLineSignature} from "./signature.js";
 import {getMentionRanges, excludeTextRanges} from "./message-text.js";
 import {findUserMentions, restoreUserMentions, type MentionAlias, type UserMention} from "./mentions.js";
@@ -30,9 +31,6 @@ export const ENABLE_TEXT_COMMAND = "/啟用文字翻譯";
 export const DISABLE_TEXT_COMMAND = "/停用文字翻譯";
 export const ENABLE_AUDIO_COMMAND = "/啟用語音轉文字";
 export const DISABLE_AUDIO_COMMAND = "/停用語音轉文字";
-export const ENABLE_TRANSLATION_COMMAND = "/啟用翻譯";
-export const DISABLE_TRANSLATION_COMMAND = "/停用翻譯";
-export const TRANSLATION_STATUS_COMMAND = "/翻譯狀態";
 export const TRANSLATION_SETTINGS_COMMAND = "/翻譯設定";
 export const CHINESE_TO_ENGLISH_COMMAND = "/中翻英";
 export const ENGLISH_TO_CHINESE_COMMAND = "/英翻中";
@@ -46,9 +44,11 @@ const MODE_COMMANDS: Readonly<Record<string, TranslationMode>> = {
   [CHINESE_ENGLISH_COMMAND]: "zh-en",
   [CHINESE_VIETNAMESE_COMMAND]: "zh-vi",
 };
+const RETIRED_COMMANDS = new Set(["/啟用翻譯", "/停用翻譯", "/翻譯狀態"]);
 const MAIN_COMMANDS = [
-  ...Object.keys(MODE_COMMANDS), DISABLE_TRANSLATION_COMMAND,
+  ...Object.keys(MODE_COMMANDS),
   ENABLE_TEXT_COMMAND, DISABLE_TEXT_COMMAND, ENABLE_AUDIO_COMMAND, DISABLE_AUDIO_COMMAND,
+  MY_LINE_USER_ID_COMMAND,
 ].join("\n");
 const JOIN_MESSAGE =
   `翻譯目前尚未啟用。請由授權者選擇翻譯模式。\n\n可用指令：\n${MAIN_COMMANDS}`;
@@ -79,7 +79,8 @@ export interface WebhookLogger {
 
 export interface WebhookDependencies {
   channelSecret: string;
-  translator: Translator;
+  translator?: Translator;
+  getTranslationProgram?: (mode: TranslationMode) => TranslationProgram;
   transcriber: AudioTranscriber;
   audioContentLoader: AudioContentLoader;
   replier: LineReplier;
@@ -188,9 +189,10 @@ export async function processLineWebhook(
       continue;
     }
 
-    if (isChatAudioMessageEvent(event)) {
+    // Private chats only support the ID command above; translation is group-only.
+    if (isGroupAudioMessageEvent(event)) {
       try {
-        const outcome = await processChatAudioMessage(
+        const outcome = await processGroupAudioMessage(
           event,
           maxMessageLength,
           maxAudioDurationMs,
@@ -210,13 +212,13 @@ export async function processLineWebhook(
       continue;
     }
 
-    if (!isChatTextMessageEvent(event)) {
+    if (!isGroupTextMessageEvent(event)) {
       ignored += 1;
       continue;
     }
 
     try {
-      const outcome = await processChatTextMessage(event, maxMessageLength, dependencies);
+      const outcome = await processGroupTextMessage(event, maxMessageLength, dependencies);
       outcome === "processed" ? processed += 1 : ignored += 1;
     } catch (error: unknown) {
       failed += 1;
@@ -239,14 +241,14 @@ export async function processLineWebhook(
   return {status: 200, body: {ok: true, processed, ignored, failed}};
 }
 
-async function processChatAudioMessage(
-  event: ChatAudioMessageEvent,
+async function processGroupAudioMessage(
+  event: GroupAudioMessageEvent,
   maxMessageLength: number,
   maxAudioDurationMs: number,
   maxAudioBytes: number,
   dependencies: WebhookDependencies,
 ): Promise<"processed" | "ignored"> {
-  const settings = await dependencies.settingsStore.getSettings(getConversationId(event));
+  const settings = await dependencies.settingsStore.getSettings(event.source.groupId);
   if (!settings.audioTranscriptionEnabled) {
     return "ignored";
   }
@@ -297,7 +299,8 @@ async function processChatAudioMessage(
     return "processed";
   }
 
-  const translatedText = await dependencies.translator.translate(
+  const {translator} = resolveTranslationProgram(dependencies, settings.translationMode);
+  const translatedText = await translator.translate(
     transcription.text,
     languagePair.sourceLanguageCode,
     languagePair.targetLanguageCode,
@@ -309,16 +312,16 @@ async function processChatAudioMessage(
   return "processed";
 }
 
-async function processChatTextMessage(
-  event: ChatTextMessageEvent,
+async function processGroupTextMessage(
+  event: GroupTextMessageEvent,
   maxMessageLength: number,
   dependencies: WebhookDependencies,
 ): Promise<"processed" | "ignored"> {
   const text = event.message.text;
   const command = text.trim();
-  const conversationId = getConversationId(event);
+  const conversationId = event.source.groupId;
 
-  if (command === MY_LINE_USER_ID_COMMAND) {
+  if (RETIRED_COMMANDS.has(command) || command === MY_LINE_USER_ID_COMMAND) {
     return "ignored";
   }
 
@@ -350,7 +353,7 @@ async function processChatTextMessage(
 
     const settings = await dependencies.settingsStore.getSettings(conversationId);
     const isAudioCommand = command === ENABLE_AUDIO_COMMAND || command === DISABLE_AUDIO_COMMAND;
-    const enabled = command === ENABLE_TRANSLATION_COMMAND || command === ENABLE_TEXT_COMMAND ||
+    const enabled = command === ENABLE_TEXT_COMMAND ||
       command === ENABLE_AUDIO_COMMAND;
     if (isAudioCommand) {
       await dependencies.settingsStore.setAudioTranscriptionEnabled(conversationId, enabled, changedBy);
@@ -368,14 +371,9 @@ async function processChatTextMessage(
     return "processed";
   }
 
-  if (
-    command === TRANSLATION_STATUS_COMMAND ||
-    command === TRANSLATION_SETTINGS_COMMAND
-  ) {
+  if (command === TRANSLATION_SETTINGS_COMMAND) {
     const settings = await dependencies.settingsStore.getSettings(conversationId);
-    const response = command === TRANSLATION_SETTINGS_COMMAND ?
-      `${formatStatus(settings)}\n\n可用指令：\n${MAIN_COMMANDS}` :
-      formatStatus(settings);
+    const response = `${formatStatus(settings)}\n\n可用指令：\n${MAIN_COMMANDS}`;
     await dependencies.replier.replyText(event.replyToken, response);
     return "processed";
   }
@@ -394,6 +392,11 @@ async function processChatTextMessage(
     return "ignored";
   }
 
+  // Only standalone acknowledgements; keep longer business messages translatable.
+  if (/^(?:ok|yes|no)[\s.!?,。！？，…]*$/iu.test(text.normalize("NFKC").trim())) {
+    return "ignored";
+  }
+
   const mentionRanges = getMentionRanges(event.message);
   const languageText = excludeTextRanges(text, mentionRanges);
   const languagePair = getTextLanguagePair(languageText, settings.translationMode);
@@ -401,11 +404,12 @@ async function processChatTextMessage(
     return "ignored";
   }
 
+  const {translator, mentionAliases} = resolveTranslationProgram(dependencies, settings.translationMode);
   const translationArgs: [string, string, string, TranslationContext?] = [
     text, languagePair.sourceLanguageCode, languagePair.targetLanguageCode,
   ];
-  const candidates = event.source.type === "group" && dependencies.translator.translateWithRanges ?
-    findUserMentions(event.message, dependencies.mentionAliases ?? []) : [];
+  const candidates = translator.translateWithRanges ?
+    findUserMentions(event.message, mentionAliases) : [];
   const protectedRanges = [...mentionRanges];
   for (const {start, length} of candidates) {
     if (!protectedRanges.some((range) => range.start === start && range.length === length)) {
@@ -415,17 +419,14 @@ async function processChatTextMessage(
   if (protectedRanges.length) translationArgs.push({protectedRanges});
   let translatedText: string;
   let translatedMentions: UserMention[] = [];
-  if (candidates.length && dependencies.translator.translateWithRanges) {
-    const result = await dependencies.translator.translateWithRanges(...translationArgs);
+  if (candidates.length && translator.translateWithRanges) {
+    const result = await translator.translateWithRanges(...translationArgs);
     translatedText = result.text;
     translatedMentions = restoreUserMentions(text, result.text, candidates, result.ranges);
   } else {
-    translatedText = await dependencies.translator.translate(...translationArgs);
+    translatedText = await translator.translate(...translationArgs);
   }
-  if (
-    event.source.type === "group" &&
-    normalizeTranslationText(text) === normalizeTranslationText(translatedText)
-  ) {
+  if (normalizeTranslationText(text) === normalizeTranslationText(translatedText)) {
     // An unchanged result may also indicate a translation issue; keep a diagnostic without content.
     dependencies.logger.warn("Skipped an unchanged translation for a LINE group text message.", {
       webhookEventId: event.webhookEventId,
@@ -435,7 +436,7 @@ async function processChatTextMessage(
     return "ignored";
   }
 
-  if (translatedMentions.length && event.source.type === "group") {
+  if (translatedMentions.length) {
     await dependencies.replier.replyText(event.replyToken, translatedText,
       {groupId: event.source.groupId, mentions: translatedMentions});
   } else {
@@ -481,23 +482,23 @@ function getSecondaryLanguageCode(translationMode: TranslationMode): "en" | "vi"
   return translationMode === "zh-vi" ? "vi" : "en";
 }
 
-function getConversationId(event: ChatTextMessageEvent | ChatAudioMessageEvent): string {
-  return event.source.type === "group" ?
-    event.source.groupId :
-    `user:${event.source.userId}`;
-}
-
-function canChangeSettings(event: ChatTextMessageEvent, ownerUserId: string): boolean {
-  return event.source.type === "user" || event.source.userId === ownerUserId;
+function canChangeSettings(event: GroupTextMessageEvent, ownerUserId: string): boolean {
+  return event.source.userId === ownerUserId;
 }
 
 function getCommandMode(command: string): TranslationMode | undefined {
   return Object.hasOwn(MODE_COMMANDS, command) ? MODE_COMMANDS[command] : undefined;
 }
 
+function resolveTranslationProgram(dependencies: WebhookDependencies, mode: TranslationMode): TranslationProgram {
+  if (dependencies.getTranslationProgram) return dependencies.getTranslationProgram(mode);
+  if (!dependencies.translator) throw new Error("Translation program is not configured.");
+  return {translator: dependencies.translator, mentionAliases: mode === "zh-vi" ? [] : dependencies.mentionAliases ?? []};
+}
+
 function isSettingsChangeCommand(command: string): boolean {
   return getCommandMode(command) !== undefined ||
-    [ENABLE_TRANSLATION_COMMAND, DISABLE_TRANSLATION_COMMAND, ENABLE_TEXT_COMMAND,
+    [ENABLE_TEXT_COMMAND,
       DISABLE_TEXT_COMMAND, ENABLE_AUDIO_COMMAND, DISABLE_AUDIO_COMMAND].includes(command);
 }
 

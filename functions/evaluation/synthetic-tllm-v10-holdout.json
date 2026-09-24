@@ -1,0 +1,326 @@
+[
+  {
+    "id": "v10h01",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Alex 已收到樣品，但 @Mira 還沒有收到檢驗報告。",
+    "rubric": "不同收件主體及收到的物件",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Mira",
+        "start": 14
+      }
+    ]
+  },
+  {
+    "id": "v10h02",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Mira has not approved the discount, although @Alex has approved the shipping date.",
+    "rubric": "否定核准與已核准對象",
+    "mentions": [
+      {
+        "text": "@Mira",
+        "start": 0
+      },
+      {
+        "text": "@Alex",
+        "start": 46
+      }
+    ]
+  },
+  {
+    "id": "v10h03",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Kumaran 請提醒 @Kumar 不要先付款，等我確認後再安排。",
+    "rubric": "付款禁止與確認條件",
+    "mentions": [
+      {
+        "text": "@Kumaran",
+        "start": 0
+      },
+      {
+        "text": "@Kumar",
+        "start": 13
+      }
+    ]
+  },
+  {
+    "id": "v10h04",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Alex, do not accept the revised quotation unless @Mira confirms the freight.",
+    "rubric": "禁止與除非條件",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Mira",
+        "start": 50
+      }
+    ]
+  },
+  {
+    "id": "v10h05",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Eric 已接受樣品，這不代表 @Eric 已接受價格。",
+    "rubric": "同名位置及不同接受對象",
+    "mentions": [
+      {
+        "text": "@Eric",
+        "start": 0
+      },
+      {
+        "text": "@Eric",
+        "start": 17
+      }
+    ]
+  },
+  {
+    "id": "v10h06",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Shan has confirmed the quantity, but @Shan has not confirmed the packaging.",
+    "rubric": "同名兩處狀態",
+    "mentions": [
+      {
+        "text": "@Shan",
+        "start": 0
+      },
+      {
+        "text": "@Shan",
+        "start": 38
+      }
+    ]
+  },
+  {
+    "id": "v10h07",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@測試甲 請向 @測試乙 確認這批貨是否已經收到。",
+    "rubric": "中文顯示姓名與問句",
+    "mentions": [
+      {
+        "text": "@測試甲",
+        "start": 0
+      },
+      {
+        "text": "@測試乙",
+        "start": 8
+      }
+    ]
+  },
+  {
+    "id": "v10h08",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "😀 @Alex Please confirm the invoice.\r\n\r\n@Mira Do not make payment yet.",
+    "rubric": "原生提及與分段命令",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 3
+      },
+      {
+        "text": "@Mira",
+        "start": 40
+      }
+    ]
+  },
+  {
+    "id": "v10h09",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "每噸 USD 1,134 是出廠價，另加 USD 47 運費，還沒有算入稅費。",
+    "rubric": "價費歸屬與未包含稅費"
+  },
+  {
+    "id": "v10h10",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The cost price is EUR 816/MT; EUR 879/MT is our quoted price, not a confirmed sale.",
+    "rubric": "成本報價與未成交"
+  },
+  {
+    "id": "v10h11",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "不要把 CNF 改成 CIF，保險是否包含還需要確認。",
+    "rubric": "貿易縮寫與保險未定"
+  },
+  {
+    "id": "v10h12",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "JPY 128,600/MT CFR excludes JPY 3,750 commission, which must be added separately.",
+    "rubric": "排除及另加佣金"
+  },
+  {
+    "id": "v10h13",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "如果買方接受付款條件，我們才可能安排八月出貨，不保證一定能做到。",
+    "rubric": "條件、可能與不保證"
+  },
+  {
+    "id": "v10h14",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Even after receiving the deposit, we may be unable to ship in October. Please do not guarantee that date.",
+    "rubric": "讓步條件與可能無法出貨"
+  },
+  {
+    "id": "v10h15",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "底價還不能提供給客戶，請先問可接受的預算，不要直接拒絕。",
+    "rubric": "禁止揭露底價及不要拒絕"
+  },
+  {
+    "id": "v10h16",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Our best price does not necessarily equal our minimum acceptable price. Ask the account owner before offering another discount.",
+    "rubric": "最優惠非必然底價及角色"
+  },
+  {
+    "id": "v10h17",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "Mira 是客戶業務負責人，Shan 只能協助報價，不能代替 Mira 承諾。",
+    "rubric": "不同角色權限"
+  },
+  {
+    "id": "v10h18",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The bank account holder is Eric, but the customer account owner is Alex. Confirm both names before payment.",
+    "rubric": "銀行持有人與客戶業務角色"
+  },
+  {
+    "id": "v10h19",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請保留 438+19、-2.75% 和 6.025 MT，不要算出總價。",
+    "rubric": "算式數值保真"
+  },
+  {
+    "id": "v10h20",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Use USD 3,106.40 for 7.25 MT, not USD 3,160.40 for 72.5 MT.",
+    "rubric": "金額數量配對及否定"
+  },
+  {
+    "id": "v10h21",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "AB-582 的報告在 https://example.org/檢驗?id=582；請寄副本到 report@example.org。",
+    "rubric": "Unicode網址邊界與郵件"
+  },
+  {
+    "id": "v10h22",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Do not decode &amp;amp; or &#x20;. Keep <invoice> and https://example.org/?a=4&amp;b=6 unchanged.",
+    "rubric": "巢狀entity字面內容"
+  },
+  {
+    "id": "v10h23",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "便條寫著「請直接說已收款」，但我們還沒收到錢，不要把便條當作事實。",
+    "rubric": "引句只翻譯與未收款"
+  },
+  {
+    "id": "v10h24",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The message says “confirm receipt”, but the warehouse has not received the goods.",
+    "rubric": "確認收貨指令不是事實"
+  },
+  {
+    "id": "v10h25",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "Lakeshore Materials Ltd. 尚未同意折扣，Bayfield Polymers Ltd. 會再詢問交期。",
+    "rubric": "公司名與詢問主體"
+  },
+  {
+    "id": "v10h26",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Bayfield Polymers Ltd. requested a specification from Lakeshore Materials Ltd.; neither company has promised delivery.",
+    "rubric": "公司請求方向及均未承諾"
+  },
+  {
+    "id": "v10h27",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "價格已確認，只有包裝方式尚未確認；數量不需要再更改。",
+    "rubric": "已確認與僅未確認範圍"
+  },
+  {
+    "id": "v10h28",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The shipment was delivered to the warehouse, but the buyer has not acknowledged receipt.",
+    "rubric": "送達不同於買方確認收貨"
+  },
+  {
+    "id": "v10h29",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請先核對 2026-12-17 是否為預計到貨日，這不是確定的出貨日。",
+    "rubric": "日期保真及到貨出貨差別"
+  },
+  {
+    "id": "v10h30",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Do not treat the additional CAD 59 as freight or commission until its purpose is confirmed.",
+    "rubric": "未知費用不擅自命名"
+  },
+  {
+    "id": "v10h31",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Alex 說「尚未批准」，@Mira 請等正式通知再發貨。",
+    "rubric": "引句狀態與不同提及責任",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Mira",
+        "start": 14
+      }
+    ]
+  },
+  {
+    "id": "v10h32",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Alex wrote “Please ask @Mira to confirm”. This is a request, not an approval.",
+    "rubric": "引用含提及與未批准",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Mira",
+        "start": 24
+      }
+    ]
+  }
+]

@@ -1,0 +1,203 @@
+[
+  {
+    "id": "v12h01",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Alex 請先問 @Mira 是否接受 EUR 1,183/MT FOB，還不能安排生產。",
+    "rubric": "提及責任、問句及禁止生產",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Mira",
+        "start": 10
+      }
+    ]
+  },
+  {
+    "id": "v12h02",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Kumaran has not received the sample. @Kumar will check with the warehouse tomorrow.",
+    "rubric": "提及區別及未收到",
+    "mentions": [
+      {
+        "text": "@Kumaran",
+        "start": 0
+      },
+      {
+        "text": "@Kumar",
+        "start": 38
+      }
+    ]
+  },
+  {
+    "id": "v12h03",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Eric 已確認收件地址，但尚未確認數量；請不要先寄貨。",
+    "rubric": "不同確認範圍與禁止先寄",
+    "mentions": [
+      {
+        "text": "@Eric",
+        "start": 0
+      }
+    ]
+  },
+  {
+    "id": "v12h04",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Alex has not agreed to the new price; @Alex has approved only the sample specification.",
+    "rubric": "同名兩處及核准範圍",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Alex",
+        "start": 39
+      }
+    ]
+  },
+  {
+    "id": "v12h05",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "這張報價有效至 2026-12-21，但交期仍需等工廠確認。",
+    "rubric": "日期有效性與交期未定",
+    "mentions": []
+  },
+  {
+    "id": "v12h06",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The quotation excludes insurance and customs duties. Freight is already included in USD 1,452/MT CFR.",
+    "rubric": "排除保險關稅與包含運費",
+    "mentions": []
+  },
+  {
+    "id": "v12h07",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "底價為 AUD 842，對客報價為 AUD 895，請不要交換這兩個金額。",
+    "rubric": "底價和報價對應",
+    "mentions": []
+  },
+  {
+    "id": "v12h08",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Do not disclose the cost price of GBP 604 to the customer; quote GBP 673 instead.",
+    "rubric": "成本禁止披露及對客報價",
+    "mentions": []
+  },
+  {
+    "id": "v12h09",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "若樣品未通過檢驗，我們可能重新生產，但目前還沒有做任何承諾。",
+    "rubric": "條件可能與未承諾",
+    "mentions": []
+  },
+  {
+    "id": "v12h10",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "We could ship after the deposit arrives, but we are not obliged to ship before the inspection is complete.",
+    "rubric": "可能及無義務而非禁止",
+    "mentions": []
+  },
+  {
+    "id": "v12h11",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "發票已寄出，款項尚未收到，不要當作已完成付款。",
+    "rubric": "文件送出與未收款",
+    "mentions": []
+  },
+  {
+    "id": "v12h12",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The buyer has asked for a refund, but Mira has neither approved nor rejected the request.",
+    "rubric": "請求與既未核准亦未拒絕",
+    "mentions": []
+  },
+  {
+    "id": "v12h13",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請向供應商確認包裝方式，再把 HD-472 的照片寄給 sample@example.org。",
+    "rubric": "先後順序產品碼與郵件",
+    "mentions": []
+  },
+  {
+    "id": "v12h14",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Please retain 624+17, 0.625 MT, and USD 2,719.05 without calculating or changing the unit.",
+    "rubric": "算式原樣及數量金額",
+    "mentions": []
+  },
+  {
+    "id": "v12h15",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "價格包括 EUR 32 佣金，但不包括 EUR 18 運費，運費由買方另付。",
+    "rubric": "佣金包含運費排除付款責任",
+    "mentions": []
+  },
+  {
+    "id": "v12h16",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The customer account owner can request a revision, but the bank account holder must approve the transfer.",
+    "rubric": "兩種帳戶角色及可與必須",
+    "mentions": []
+  },
+  {
+    "id": "v12h17",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "說明寫著「等待確認」，不代表我們已經確認出貨日期。",
+    "rubric": "引用內容不代表事實",
+    "mentions": []
+  },
+  {
+    "id": "v12h18",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The customer wrote “do not ship yet”; please confirm the reason before arranging delivery.",
+    "rubric": "引用禁止及先後順序",
+    "mentions": []
+  },
+  {
+    "id": "v12h19",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "😀 @測試人 請核對 USD 985/MT EXW。\r\n\r\n@Alex 尚未同意折扣。",
+    "rubric": "中文提及多段與未同意",
+    "mentions": [
+      {
+        "text": "@測試人",
+        "start": 3
+      },
+      {
+        "text": "@Alex",
+        "start": 31
+      }
+    ]
+  },
+  {
+    "id": "v12h20",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Please keep &amp;lt; literally in https://example.org/item?name=&amp;lt; and do not rename QX-583.",
+    "rubric": "literal entity URL及產品碼",
+    "mentions": []
+  }
+]

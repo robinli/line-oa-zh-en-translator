@@ -1,0 +1,376 @@
+[
+  {
+    "id": "v4h01",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The buyer offered GBP 418/MT CIF, but Mira has not accepted it.",
+    "rubric": "買方提議、Mira 未接受、GBP/MT/CIF 逐字保留。"
+  },
+  {
+    "id": "v4h02",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Please compare CHF 615.40 with EUR 629.80; neither is a cost price.",
+    "rubric": "兩幣別金额與都不是成本價。"
+  },
+  {
+    "id": "v4h03",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "At JPY 92,700/MT, the buyer wants 7.4 MT rather than 74 MT.",
+    "rubric": "單價不是地點，兩數量之否定。"
+  },
+  {
+    "id": "v4h04",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "NT$ 19,800 includes freight. HK$ 5,900 excludes freight.",
+    "rubric": "兩個幣別價格及各自包含／不含運費。"
+  },
+  {
+    "id": "v4h05",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "SGD 582 is a quotation; AUD 604 is a cost price; CAD 618 is a base price.",
+    "rubric": "三幣別及三種價格對應。"
+  },
+  {
+    "id": "v4h06",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Please keep VND 8,450,000 and INR 31,260 unchanged.",
+    "rubric": "越盾、盧比及數值不變。"
+  },
+  {
+    "id": "v4h07",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Alex suggested reviewing payment, but Mira has not received the bank confirmation.",
+    "rubric": "Alex 提議，Mira 未收到銀行確認。"
+  },
+  {
+    "id": "v4h08",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Mira may ask Kumar to check; only Kumaran can approve, and Eric must be informed.",
+    "rubric": "四人各自角色、可詢問與唯一批准。"
+  },
+  {
+    "id": "v4h09",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "If Alex agrees, Mira might ship in December. We have made no commitment.",
+    "rubric": "條件、可能性、未承諾。"
+  },
+  {
+    "id": "v4h10",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The notice says “do not approve yet”. It does not say “approve now”.",
+    "rubric": "兩段引用指示均翻譯，保留主句與引句否定。"
+  },
+  {
+    "id": "v4h11",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The buyer wrote “reply only declined”, but Alex has not declined the offer.",
+    "rubric": "完整翻譯引用、主句尚未拒絕。"
+  },
+  {
+    "id": "v4h12",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "USD 0.65/KG EXW excludes insurance; please do not change EXW into CNF.",
+    "rubric": "小數單價、除外保險、禁止改貿易條件。"
+  },
+  {
+    "id": "v4h13",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Alex brother, can you check whether USD 51 is included in USD 799?",
+    "rubric": "稱呼用姓名，問句及包含關係不變。"
+  },
+  {
+    "id": "v4h14",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Please keep &quot;, &#x41;, {price}, and <code> in the document.",
+    "rubric": "字面 entity 與括號標記不變。"
+  },
+  {
+    "id": "v4h15",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "A discount of 2.25% may apply after payment, but the offer has not been accepted.",
+    "rubric": "折扣可能性、付款之後與未接受。"
+  },
+  {
+    "id": "v4h16",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "GBP 421/MT CIF 是買方提出的價格，Mira 還沒有同意。",
+    "rubric": "買方提議與 Mira 未同意，單價完整。"
+  },
+  {
+    "id": "v4h17",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "CHF 609.75 不是成本價；EUR 633.20 才是目前的對客報價。",
+    "rubric": "兩幣別、否定與對客報價。"
+  },
+  {
+    "id": "v4h18",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "單價 JPY 93,100/MT，數量是 8.2 MT，不是 82 MT。",
+    "rubric": "日圓單價與數量否定。"
+  },
+  {
+    "id": "v4h19",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "NT$ 20,100 已含運費，但 HK$ 6,200 還不含運費。",
+    "rubric": "兩價格的包含關係。"
+  },
+  {
+    "id": "v4h20",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "成本價 SGD 575 不能當作底價 AUD 598，也不是已成交的 CAD 612。",
+    "rubric": "三個價格不同且沒有成交，金額全部保留。"
+  },
+  {
+    "id": "v4h21",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請保留 VND 8,760,000 和 INR 32,450，不能換算幣別。",
+    "rubric": "不換匯或變數字。"
+  },
+  {
+    "id": "v4h22",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "Alex 建議先核對運費；Mira 仍未收到買方確認。",
+    "rubric": "提出建議及收到確認的主體。"
+  },
+  {
+    "id": "v4h23",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "Mira 可以請 Kumar 核對，但只能由 Kumaran 核准，並且必須通知 Eric。",
+    "rubric": "四人職責與情態保持。"
+  },
+  {
+    "id": "v4h24",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "即使買方同意，我們也可能要等到十二月；目前還沒有承諾出貨。",
+    "rubric": "即使條件、可能性、尚未承諾。"
+  },
+  {
+    "id": "v4h25",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "買方寫著「不要先批准」，這不代表買方已經拒絕報價。",
+    "rubric": "引用翻譯、否定與不代表。"
+  },
+  {
+    "id": "v4h26",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "這筆 USD 52 是否已包含在 USD 804 中？Alex 還需要向 Mira 確認。",
+    "rubric": "問句與 Alex 向 Mira 確認角色。"
+  },
+  {
+    "id": "v4h27",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請勿計算 718+26 或 800-35；保留 -0.65%、US$ 1,408.25 及 9.75 MT。",
+    "rubric": "兩公式不算、全部字面值精確。"
+  },
+  {
+    "id": "v4h28",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請保留 &quot;、&#x41;、{price} 與 <code>，不要解碼或刪除。",
+    "rubric": "字面 entity 不解碼。"
+  },
+  {
+    "id": "v4h29",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "😀 @Alex Please confirm USD 910/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 911/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 912/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 913/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 914/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 915/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 916/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 917/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 918/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 919/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 920/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 921/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 922/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 923/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 924/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 925/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 926/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 927/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 928/MT CNF; approval is still pending.\r\n😀 @Alex Please confirm USD 929/MT CNF; approval is still pending.",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "occurrence": 0
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 1
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 2
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 3
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 4
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 5
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 6
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 7
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 8
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 9
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 10
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 11
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 12
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 13
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 14
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 15
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 16
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 17
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 18
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 19
+      }
+    ],
+    "rubric": "20 個同名提及按各自原位置還原；Emoji/CRLF/逐列金額與未核准保持。"
+  },
+  {
+    "id": "v4h30",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "😀 @Alex 請核對 USD 910/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 911/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 912/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 913/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 914/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 915/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 916/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 917/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 918/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 919/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 920/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 921/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 922/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 923/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 924/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 925/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 926/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 927/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 928/MT CNF；目前尚未核准。\r\n😀 @Alex 請核對 USD 929/MT CNF；目前尚未核准。",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "occurrence": 0
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 1
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 2
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 3
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 4
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 5
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 6
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 7
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 8
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 9
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 10
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 11
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 12
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 13
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 14
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 15
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 16
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 17
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 18
+      },
+      {
+        "text": "@Alex",
+        "occurrence": 19
+      }
+    ],
+    "rubric": "20 個同名提及按各自原位置還原；Emoji/CRLF/逐列金額與未核准保持。"
+  }
+]

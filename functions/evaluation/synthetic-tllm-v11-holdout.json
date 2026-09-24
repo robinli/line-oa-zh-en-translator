@@ -1,0 +1,180 @@
+[
+  {
+    "id": "v11h01",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Eric has not confirmed the warehouse address. @Mira has confirmed only the invoice.",
+    "rubric": "不同提及否定與only範圍",
+    "mentions": [
+      {
+        "text": "@Eric",
+        "start": 0
+      },
+      {
+        "text": "@Mira",
+        "start": 47
+      }
+    ]
+  },
+  {
+    "id": "v11h02",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Kumar 尚未收到文件，請 @Kumaran 確認是否已寄出。",
+    "rubric": "收件者與被要求確認者",
+    "mentions": [
+      {
+        "text": "@Kumar",
+        "start": 0
+      },
+      {
+        "text": "@Kumaran",
+        "start": 16
+      }
+    ]
+  },
+  {
+    "id": "v11h03",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@Alex Please do not promise a discount. @Alex has not accepted the payment terms.",
+    "rubric": "同名命令及狀態",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Alex",
+        "start": 40
+      }
+    ]
+  },
+  {
+    "id": "v11h04",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Mira 已付款，但這不表示 @Mira 已同意延後出貨。",
+    "rubric": "付款與未表示同意",
+    "mentions": [
+      {
+        "text": "@Mira",
+        "start": 0
+      },
+      {
+        "text": "@Mira",
+        "start": 16
+      }
+    ]
+  },
+  {
+    "id": "v11h05",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "If the buyer rejects USD 1,307/MT CNF, do not assume that USD 1,289/MT FOB has been accepted.",
+    "rubric": "條件與兩價未接受",
+    "mentions": []
+  },
+  {
+    "id": "v11h06",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "EUR 68 佣金已包含在 EUR 947 裡，EUR 26 運費另加，不要重複加佣金。",
+    "rubric": "費用包括與另加",
+    "mentions": []
+  },
+  {
+    "id": "v11h07",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The quoted price is HK$ 8,245, but the customer account owner has not authorized any reduction.",
+    "rubric": "報價角色及未授權降價",
+    "mentions": []
+  },
+  {
+    "id": "v11h08",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "我們只能說可能十一月到貨，出貨日期還沒有確認。",
+    "rubric": "到貨與出貨不同及可能性",
+    "mentions": []
+  },
+  {
+    "id": "v11h09",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "Please ask the buyer whether the samples have arrived; do not state that the buyer has accepted their quality.",
+    "rubric": "到貨問句不等於品質接受",
+    "mentions": []
+  },
+  {
+    "id": "v11h10",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "倉庫已簽收，不代表買方確認品質沒有問題。",
+    "rubric": "簽收不等於品質驗收",
+    "mentions": []
+  },
+  {
+    "id": "v11h11",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The note says “wait for approval”. It does not authorize shipment or payment.",
+    "rubric": "引句與無授權",
+    "mentions": []
+  },
+  {
+    "id": "v11h12",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請保留 526-13、USD 0.87/KG 和 4.375 MT，不能把 EXW 改成 FOB。",
+    "rubric": "數字公式貿易縮寫",
+    "mentions": []
+  },
+  {
+    "id": "v11h13",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "@測試人 Please send VT-386 to quality@example.net after checking https://example.net/spec?id=386.",
+    "rubric": "中文原生提及聯絡資訊及先後",
+    "mentions": [
+      {
+        "text": "@測試人",
+        "start": 0
+      }
+    ]
+  },
+  {
+    "id": "v11h14",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "@Alex 請確認 GBP 739。\n\n@Eric：還不能答應。",
+    "rubric": "分段說話標籤與不承諾",
+    "mentions": [
+      {
+        "text": "@Alex",
+        "start": 0
+      },
+      {
+        "text": "@Eric",
+        "start": 20
+      }
+    ]
+  },
+  {
+    "id": "v11h15",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "source": "The buyer may cancel if delivery is late, but has not cancelled the order yet.",
+    "rubric": "可能條件與尚未取消",
+    "mentions": []
+  },
+  {
+    "id": "v11h16",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "這是買方要求的折扣，不是我們已核准的折扣；必須先問負責人。",
+    "rubric": "要求不等於已核准",
+    "mentions": []
+  }
+]
