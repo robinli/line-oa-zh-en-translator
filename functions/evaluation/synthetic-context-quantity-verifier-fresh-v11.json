@@ -1,0 +1,70 @@
+[
+  {
+    "id": "cqv11f01",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "core": true,
+    "source": "請保留小袋方案。\n備案是780公斤 FIBC 大袋。\n這不是已登記的規格。",
+    "rubric": "Retain small-bag plan;780 kg FIBC is fallback/alternative; explicitly not registered specification. Preserve all three paragraphs, no commitment or added registration fact."
+  },
+  {
+    "id": "cqv11f02",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "core": true,
+    "source": "@Rook has confirmed 23 kg, but @Rook has not confirmed 46 kg.",
+    "mentions": [
+      {
+        "text": "@Rook",
+        "occurrence": 0
+      },
+      {
+        "text": "@Rook",
+        "occurrence": 1
+      }
+    ],
+    "rubric": "First native Rook confirmed23 kg, second did not confirm46 kg. Amount and polarity remain bound to correct sourceStart despite comma and but. No merged occurrences."
+  },
+  {
+    "id": "cqv11f03",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "core": true,
+    "source": "Use 720 kg FIBC bags only if the buyer does not reject the 24 kg bags. Otherwise, keep the 24 kg bags.",
+    "rubric": "720 kg FIBC conditional on buyer NOT rejecting24 kg bags; otherwise retain24 kg. Keep source negative conditional exactly; do not make rejection the trigger or add confirmed commitment."
+  },
+  {
+    "id": "cqv11f04",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "core": true,
+    "source": "Do not change the units from kg to MT; you are not required to calculate the total weight.",
+    "rubric": "Changing units kg to MT is prohibited. Total-weight calculation is not required, not prohibited. Preserve both actions, their objects and independent modalities; do not convert or calculate."
+  },
+  {
+    "id": "cqv11f05",
+    "sourceLanguage": "en",
+    "targetLanguage": "zh-TW",
+    "core": true,
+    "source": "The charge is USD 9.50/carton.\nThe charge is USD 2.40/bag.",
+    "rubric": "First paragraph USD9.50 per carton and second USD2.40 per bag; preserve exact currency and precision, finite carton=紙箱 and bag=袋 allowed. No denominator or paragraph swap, no calculated total."
+  },
+  {
+    "id": "cqv11f06",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "core": true,
+    "source": "@Rook已確認18公斤袋裝。\r\n@Rook尚未確認900公斤 FIBC 大袋。\r\n保留字面字串 &amp;。",
+    "mentions": [
+      {
+        "text": "@Rook",
+        "occurrence": 0
+      },
+      {
+        "text": "@Rook",
+        "occurrence": 1
+      }
+    ],
+    "rubric": "First Rook confirmed18 kg bag packing; second has not confirmed900 kg FIBC. Preserve two CRLF separators, literal &amp; exactly, occurrence identity, amounts, packing assignment and status."
+  }
+]

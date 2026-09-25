@@ -15,6 +15,15 @@ const negativeEn = "(?:has|have|had|does|do|did)(?:\\s+not|n['’]t)\\s+(?:yet\\
 const positiveZh = "(?:已經|已)";
 const positiveEn = "(?:(?:has|have|had)\\s+)?(?:already\\s+)?";
 
+function sourceStatusPattern(predicate: typeof predicates[number], language: string, negative: boolean): RegExp {
+  return language === "zh-TW" ?
+    new RegExp("^[ \\t]*" + (negative ? negativeZh : positiveZh) + predicate.zh, "u") :
+    new RegExp("^[ \\t]*" + (negative ? "(?:has|have|had)(?:\\s+not|n['’]t)\\s+(?:yet\\s+)?" : positiveEn) + predicate.past + "\\b", "iu");
+}
+export function llmMentionHasExplicitStatus(tail: string, language: string): boolean {
+  return predicates.some(predicate => [true, false].some(negative => sourceStatusPattern(predicate, language, negative).test(tail)));
+}
+
 // Compare unique internal tokens, not restored display names: same-name mentions can
 // identify different people. A status with an explicit named subject must retain it.
 // This is a conservative guard for finite, direct status predicates, not a general parser.
@@ -40,9 +49,7 @@ export function validateLlmMentionSubjects(prepared: PreparedTradeText, translat
         if (!targetCommand.test(targetTail)) throw new TranslationQualityError("mention_command_changed");
       }
       for (const negative of [true, false]) {
-        const sourcePattern = sourceLanguage === "zh-TW" ?
-          new RegExp("^[ \\t]*" + (negative ? negativeZh : positiveZh) + predicate.zh, "u") :
-          new RegExp("^[ \\t]*" + (negative ? "(?:has|have|had)(?:\\s+not|n['’]t)\\s+(?:yet\\s+)?" : positiveEn) + predicate.past + "\\b", "iu");
+        const sourcePattern = sourceStatusPattern(predicate, sourceLanguage, negative);
         if (!sourcePattern.test(sourceTail)) continue;
         const targetPattern = targetLanguage === "zh-TW" ?
           new RegExp("^[ \\t]*" + (negative ? negativeZh : "(?:僅|只)?(?:已經|已)?") + predicate.zh, "u") :

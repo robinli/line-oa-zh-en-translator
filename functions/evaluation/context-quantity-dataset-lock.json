@@ -1,0 +1,72 @@
+[
+  {
+    "sha256": "9ee8c13e3dc658d94856918545d6e7d4fd91fdf3a2710caaa4a107ac05864358",
+    "count": 20,
+    "file": "synthetic-alternative-cases.json"
+  },
+  {
+    "sha256": "9fbb7dca798662aa7ad15b4f68b2c851b07f120fe9385fab4301501700989c29",
+    "count": 30,
+    "file": "synthetic-direct-comparison-cases.json"
+  },
+  {
+    "sha256": "df9655c0dcffb0e9aeeb14c03d1a14cb0a8623dd4e19200bd0205fd4a0be7bff",
+    "count": 30,
+    "file": "synthetic-tllm-holdout.json"
+  },
+  {
+    "sha256": "80dbfca018bab2f2a251c0bd49a6c039a32bebe3deb965da2610ed1d6368460b",
+    "count": 32,
+    "file": "synthetic-tllm-v10-holdout.json"
+  },
+  {
+    "sha256": "3070662e1f604be43f6d2f7b24389bf306d7618ee9bcd551b5543a32aa72a110",
+    "count": 16,
+    "file": "synthetic-tllm-v11-holdout.json"
+  },
+  {
+    "sha256": "e5ec2c6475d7ddedb0ce451a42eed2569df459dc0038df92cf63971c8b9e9551",
+    "count": 20,
+    "file": "synthetic-tllm-v12-holdout.json"
+  },
+  {
+    "sha256": "9b490df788b17af4a0f0feea31785eee8644996d07bd9e08288b3cceb1c4bdae",
+    "count": 20,
+    "file": "synthetic-tllm-v13-holdout.json"
+  },
+  {
+    "sha256": "a59542d463178027a522cc5683968061d77f5c8493240394366370d90e0f2797",
+    "count": 30,
+    "file": "synthetic-tllm-v2-holdout.json"
+  },
+  {
+    "sha256": "850c4351d986c8144087a1df7faab74d9b39f36a2343291da7cdc519991402d9",
+    "count": 30,
+    "file": "synthetic-tllm-v4-holdout.json"
+  },
+  {
+    "sha256": "1881638cd7dc284919fe4976c56fe27d280ad530f95fdaa9c6f57e108b34a099",
+    "count": 32,
+    "file": "synthetic-tllm-v6-holdout.json"
+  },
+  {
+    "sha256": "f794bfe8d7448747f0d81124c969890718e4aedb8dc5edaeedafb30505d3cfe2",
+    "count": 32,
+    "file": "synthetic-tllm-v8-holdout.json"
+  },
+  {
+    "sha256": "bfee98e9308505ed178dbda96bc7e8240c2459cbb52bf63ae811751aa2c4a248",
+    "count": 32,
+    "file": "synthetic-tllm-v9-holdout.json"
+  },
+  {
+    "sha256": "0f63bfe3d70174bcdcc0c1860c5dc3c192329c314629a592597dbc6f8b16da28",
+    "count": 32,
+    "file": "synthetic-tllm-v9-regression.json"
+  },
+  {
+    "sha256": "a92e949206055a4832032a4464978028113a59994336a4a4153be077c5058b3e",
+    "count": 10,
+    "file": "synthetic-trade-cases.json"
+  }
+]

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "marker-deformation",
+    "source": "Please confirm 600 kg.",
+    "bad": "請確認每袋數量：ABCDEFQX。",
+    "good": "請確認600 kg。",
+    "reason": "quantity marker must not replace visible weight"
+  },
+  {
+    "id": "chinese-unit",
+    "source": "使用20公斤小袋。",
+    "bad": "Use 20 lb bags.",
+    "good": "Use 20kg small bags.",
+    "reason": "kg spelling allowed; weight-family conversion forbidden"
+  },
+  {
+    "id": "weight-count",
+    "source": "Use 20 kg bags.",
+    "bad": "使用20 kg個袋子。",
+    "good": "使用20 kg的袋子。",
+    "reason": "weight cannot become bag count"
+  },
+  {
+    "id": "paragraph-merge",
+    "source": "20 kg bags.\n\n600 kg FIBC bags.",
+    "bad": "20 kg袋子。600 kg FIBC袋子。",
+    "good": "20 kg袋子。\n\n600 kg FIBC袋子。",
+    "reason": "original paragraph separators"
+  },
+  {
+    "id": "prohibition",
+    "source": "Do not calculate the number of bags.",
+    "bad": "無需計算袋數。",
+    "good": "不要計算袋數。",
+    "reason": "prohibition is not lack of obligation"
+  }
+]
