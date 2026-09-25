@@ -1,3 +1,6 @@
+import {ControlledNmtClient, AuthenticatedNmtTransport} from "./nmt-controlled-client.js";
+import {FirestoreNmtBudget} from "./nmt-budget.js";
+import {NMT_TEST_PROJECT, NMT_RUNTIME_ACCOUNT, NMT_GLOSSARIES} from "./nmt-isolation.js";
 import {logger} from "firebase-functions";
 import {defineInt, defineSecret, defineString, projectID} from "firebase-functions/params";
 import {onRequest} from "firebase-functions/v2/https";
@@ -33,14 +36,23 @@ const translationLlmGlossaryZhEn = defineString("TRANSLATION_LLM_GLOSSARY_ZH_EN"
 const translationLlmGlossaryEnZh = defineString("TRANSLATION_LLM_GLOSSARY_EN_ZH", {default: "trade-en-zh-v8"});
 const protectedNames = defineString("TRADE_PROTECTED_NAMES", {default: DEFAULT_PROTECTED_NAMES.join(",")});
 
+const runtimeServiceAccount = defineString("TEST_RUNTIME_SERVICE_ACCOUNT", {default: NMT_RUNTIME_ACCOUNT});
+
 const firebaseApp = getApps()[0] ?? initializeApp();
 const conversationSettingsStore = new FirestoreConversationSettingsStore(getFirestore(firebaseApp));
+
+function controlledClient() {
+  if (projectID.value() !== NMT_TEST_PROJECT || runtimeServiceAccount.value() !== NMT_RUNTIME_ACCOUNT) throw new Error("Isolated NMT runtime target mismatch");
+  const transport = new AuthenticatedNmtTransport();
+  return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", () => transport.identity(), true);
+}
 
 const getTranslationProgram = createTranslationProgramRouter(() => {
   let aliases: MentionAlias[] = [];
   try { aliases = parseMentionAliases(mentionAliases.value()); } catch {
     logger.warn("LINE mention aliases are disabled because configuration is invalid.");
   }
+  if (translationEngine.value() !== "nmt-glossary") throw new Error("Isolated test runtime requires nmt-glossary");
   return {
     translator: createTranslator({
       engine: translationEngine.value(),
@@ -48,6 +60,10 @@ const getTranslationProgram = createTranslationProgramRouter(() => {
       model: translationModel.value(),
       location: translationLocation.value(),
       protectedNames: protectedNames.value(),
+      nmtGlossary: {location: "us-central1",
+        glossaryZhEn: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.zhEn,
+        glossaryEnZh: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.enZh, client: controlledClient()},
+      onNmtMetric: metric => logger.info("NMT request completed.", {...metric}),
       translationLlm: {
         location: translationLlmLocation.value(),
         glossaryZhEn: "projects/" + projectID.value() + "/locations/" + translationLlmLocation.value() + "/glossaries/" + translationLlmGlossaryZhEn.value(),
@@ -58,7 +74,7 @@ const getTranslationProgram = createTranslationProgramRouter(() => {
     }),
     mentionAliases: aliases,
   };
-}, () => new VietnameseNmtTranslator(projectID.value()));
+}, () => new VietnameseNmtTranslator(projectID.value(), controlledClient()));
 
 export const lineWebhook = onRequest(
   {
@@ -67,7 +83,7 @@ export const lineWebhook = onRequest(
     timeoutSeconds: 60,
     maxInstances: 5,
     serviceAccount:
-      "line-translator-runtime@line-auto-translate-bot.iam.gserviceaccount.com",
+      runtimeServiceAccount,
     secrets: [lineChannelSecret, lineChannelAccessToken, lineOwnerUserId],
   },
   async (request, response) => {

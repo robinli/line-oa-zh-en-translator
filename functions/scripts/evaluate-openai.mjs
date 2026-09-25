@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 // Only fixed, synthetic Chinese-English examples; no LINE or production configuration.
 import {readFile, writeFile, mkdir} from "node:fs/promises";
 import {BusinessTranslator} from "../lib/business-translator.js";

@@ -17,3 +17,11 @@ describe("Translation LLM engine integration", () => {
     expect(createTranslator({...config, engine: "business", translationLlm: {...translationLlm, location: "invalid"}})).toBeInstanceOf(BusinessTranslator);
   });
 });
+
+it("adds NMT glossary selection without changing the legacy google meaning",async()=>{
+ const {NmtGlossaryTranslator}=await import('./nmt-glossary-translator.js');const {GoogleCloudTranslator}=await import('./services.js');
+ const client={async translateText(){return [{}] as [{}];}};
+ expect(createTranslator({...config,engine:'nmt-glossary',nmtGlossary:{...translationLlm,client}})).toBeInstanceOf(NmtGlossaryTranslator);
+ expect(createTranslator({...config,engine:'google'})).toBeInstanceOf(GoogleCloudTranslator);
+ expect(()=>createTranslator({...config,engine:'nmt-glossary'})).toThrow('Missing NMT');
+});

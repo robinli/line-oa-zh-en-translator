@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {prepareLlmContext} from '../lib/translation-llm-context.js';
