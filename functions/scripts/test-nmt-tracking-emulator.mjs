@@ -1,0 +1,35 @@
+import {spawn} from 'node:child_process';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {Firestore} from 'firebase-admin/firestore';
+import assert from 'node:assert/strict';
+import {FirestoreNmtBudget,initialNmtLedger,NMT_LEDGER_PATH,NMT_MIGRATION_PATH,enableTrackingOnlyBudget,validateNmtLedger} from '../lib/nmt-budget.js';
+import {NMT_TEST_PROJECT as project} from '../lib/nmt-isolation.js';
+const host='127.0.0.1:8190';process.env.FIRESTORE_EMULATOR_HOST=host;
+const stamp=new Date().toISOString().replace(/[:.]/g,'-'),directory=new URL('../../.local/evidence/repairs-v20/emulator-'+stamp+'/',import.meta.url);mkdirSync(directory,{recursive:true});
+const java=process.env.NMT_TEST_JAVA??'C:/Program Files/Eclipse Adoptium/jre-21.0.12.101-hotspot/bin/java.exe',jar=process.env.NMT_TEST_EMULATOR_JAR??'C:/Users/Robin/.cache/firebase/emulators/cloud-firestore-emulator-v1.22.0.jar';
+const child=spawn(java,['-jar',jar,'--host=127.0.0.1','--port=8190','--project_id='+project],{windowsHide:true,stdio:['ignore','pipe','pipe']});let log='';child.stdout.on('data',x=>log+=x);child.stderr.on('data',x=>log+=x);
+const databases=[],database=()=>{const db=new Firestore({projectId:project,host,ssl:false});databases.push(db);return db;};
+let stage="startup";
+try{
+ let ready=false;for(let i=0;i<100;i++){try{await fetch('http://'+host);ready=true;break;}catch{await new Promise(r=>setTimeout(r,200));}}if(!ready)throw Error('Local emulator did not start');
+ const db=database(),ref=db.doc(NMT_LEDGER_PATH),historyRef=db.doc(NMT_MIGRATION_PATH);await ref.create(initialNmtLedger(project));
+ let callbacks=0;const clients=Array.from({length:20},()=>{const db=database(),run=db.runTransaction.bind(db);db.runTransaction=(fn,options)=>run(tx=>{callbacks++;return fn(tx);},options);return new FirestoreNmtBudget(db,project);});
+ stage="v1-parallel-cap";
+ const capped=await Promise.allSettled(clients.map(c=>c.reserve('manual',1000)));assert.equal(capped.filter(r=>r.status==='fulfilled').length,10);const before=(await ref.get()).data();assert.equal(before.used,10000);assert.equal(before.reservations,10);assert.equal((await historyRef.get()).exists,false);
+ stage="atomic-migration";
+ const migrations=await Promise.all(Array.from({length:2},()=>enableTrackingOnlyBudget(database(),project)));assert.equal(migrations.filter(r=>r.changed).length,1);
+ const afterMigration=(await ref.get()).data(),history=(await historyRef.get()).data();assert.deepEqual(afterMigration.categories,before.categories);assert.equal(afterMigration.used,before.used);assert.equal(afterMigration.reservations,before.reservations);assert.deepEqual(history.before,before);
+ const repeats=await enableTrackingOnlyBudget(database(),project);assert.equal(repeats.changed,false);assert.deepEqual((await historyRef.get()).data(),history);
+ stage="v2-parallel-count";
+ await Promise.all(clients.slice(0,8).map(c=>c.reserve('manual',20000)));const crossed=(await ref.get()).data();assert.equal(crossed.used,170000);assert.equal(crossed.reservations,18);assert.equal(crossed.categories.manual,170000);assert.ok(callbacks>28,'Real conflicts must retry transactions, never providers');
+ stage="restart-and-failure-controls";
+ const restarted=new FirestoreNmtBudget(database(),project);await restarted.reserve('smoke',5001);const final=(await ref.get()).data();assert.equal(final.used,175001);assert.equal(final.reservations,19);validateNmtLedger(final,project);assert.deepEqual((await historyRef.get()).data(),history);
+ await assert.rejects(enableTrackingOnlyBudget(database(),'line-auto-translate-bot'));
+ await ref.update({used:1});await assert.rejects(restarted.reserve('smoke',1));await ref.set(final);
+ await ref.update({mode:'unlimited'});await assert.rejects(restarted.reserve('smoke',1));await ref.set(final);
+ await ref.set({...final,used:0,reservations:0,categories:{smoke:0,regression:0,verification:0,retest:0,manual:0}});await assert.rejects(restarted.reserve('smoke',1));await ref.set(final);
+ await historyRef.delete();await assert.rejects(restarted.reserve('smoke',1));await assert.rejects(enableTrackingOnlyBudget(db,project));assert.equal((await ref.get()).get('used'),final.used);await historyRef.create(history);
+ await ref.delete();await assert.rejects(restarted.reserve('smoke',1));await assert.rejects(enableTrackingOnlyBudget(db,project));assert.equal((await ref.get()).exists,false);
+ await ref.create(initialNmtLedger(project));await assert.rejects(enableTrackingOnlyBudget(db,project),/history already exists/);assert.deepEqual((await historyRef.get()).data(),history);
+ const evidence={passed:true,node:process.version,host,project,qualification:'Local Firestore emulator only; no cloud/provider call. Synthetic counters, not live ledger evidence.',cappedParallelClients:20,trackingParallelClients:8,concurrentMigrationClients:2,transactionCallbacks:callbacks,cappedSuccessful:10,migrationWriters:1,before,afterMigration,history,finalValidLedger:final,checks:['v1 atomic category cap retained','atomic policy/history migration preserving counters','idempotent migration','parallel tracking across prior total/category caps','restart persistence','history immutable','counter rollback/invalid mode/corruption fail closed','missing history/ledger never initialized','preexisting migration history never overwritten']};writeFileSync(new URL('result.json',directory),JSON.stringify(evidence,null,2).replace(/\n/g,'\r\n')+'\r\n',{flag:'wx'});console.log(JSON.stringify({path:new URL('result.json',directory).pathname,passed:true,used:final.used,reservations:final.reservations,transactionCallbacks:callbacks}));
+}catch(error){writeFileSync(new URL("failure.json",directory),JSON.stringify({stage,code:error.code??null,message:error.message},null,2).replace(/\n/g,"\r\n")+"\r\n",{flag:"wx"});throw error;}finally{for(const db of databases)await db.terminate();child.kill();writeFileSync(new URL('emulator.log',directory),log.replace(/\r?\n/g,'\r\n'),{flag:'wx'});}

@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 // Assessment only: fixed synthetic data; no LINE clients, settings writes, or production routing.
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
