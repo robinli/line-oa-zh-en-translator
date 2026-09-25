@@ -1,0 +1,21 @@
+# Project defaults; an explicit task/UI override can take precedence.
+model = "gpt-6-astra"
+model_reasoning_effort = "high"
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 4
+default_subagent_model = "gpt-6-astra"
+default_subagent_reasoning_effort = "high"
+
+[agents.planner]
+description = "Plan large or ambiguous changes when separate planning is needed."
+config_file = "agents/planner.toml"
+
+[agents.implementer]
+description = "Implement a bounded, parent-approved work item for a large change."
+config_file = "agents/implementer.toml"
+
+[agents.verifier]
+description = "Independently verify a completed change and report actionable findings."
+config_file = "agents/verifier.toml"

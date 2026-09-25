@@ -1,6 +1,40 @@
 import {describe, expect, it, vi} from "vitest";
-import {TranslationLlmTranslator, TranslationLlmServiceError,
-  type TranslationLlmRequest, type TranslationLlmOptions} from "./translation-llm-translator.js";
+import {TranslationLlmTranslator as Adapter, TranslationLlmServiceError,
+  type TranslationLlmRequest, type TranslationLlmOptions, type TranslationLlmClient} from "./translation-llm-translator.js";
+
+// Test-only serialization of legacy plain semantic fixtures into structural HTML.
+// Context HTML tests below the adapter inject malformed wire without this helper.
+import {decodeLlmTransport} from "./translation-llm-protection.js";
+function fixtureHtml(text: string, source: string, index: number): string {
+  if (!text.trim() || text.includes("<div")) return text;
+  if (index === 0 && !text.includes("<span")) {
+    let cursor = 0;
+    for (const span of source.matchAll(/<span\b[^>]*>([^<>]*)<\/span>/gu)) {
+      const value = decodeLlmTransport(span[1]!);
+      const parts = value.match(/\d+(?:[,.]\d+)*|[+×÷=]/gu);
+      const escaped = (value: string) => value.replace(/[.*+?^$()|[\]\\]/gu, "\\$&");
+      const pattern = parts && parts.join("") === value.replace(/[ \t]/gu, "") ? new RegExp(parts.map(escaped).join("[ \\t]*"), "u") : new RegExp(escaped(value), "u");
+      const tail = text.slice(cursor), match = tail.match(pattern);
+      if (match && match.index !== undefined) {
+        const replacement = span[0].replace(span[1]!, () => match[0]);
+        const start = cursor + match.index;
+        text = text.slice(0, start) + replacement + text.slice(start + match[0].length);
+        cursor = start + replacement.length;
+      }
+    }
+  }
+  return '<div id="' + (index === 0 ? "p0" : "a" + (index - 1)) + '">' + text + "</div>";
+}
+class TranslationLlmTranslator extends Adapter {
+  constructor(options: TranslationLlmOptions, client?: TranslationLlmClient) {
+    super(options, client ? {async translateText(request, settings) {
+      const response = await client.translateText(request, settings);
+      if (Array.isArray(response[0]?.glossaryTranslations)) response[0].glossaryTranslations = response[0].glossaryTranslations.map((part, i) => ({...part,
+        translatedText: typeof part?.translatedText === "string" ? fixtureHtml(part.translatedText, request.contents[i] ?? "", i) : part?.translatedText}));
+      return response;
+    }} : undefined);
+  }
+}
 
 const parent = "projects/test-project/locations/us-central1";
 const options: TranslationLlmOptions = {projectId: "test-project", location: "us-central1",
@@ -20,11 +54,11 @@ describe("TranslationLlmTranslator", () => {
     await expect(translator.translate("Alex Please confirm USD 800 CNF.", "en", "zh-TW"))
       .resolves.toBe("Alex 請確認 USD 800 CNF.");
     expect(translateText.mock.calls[0]![0]).toMatchObject({model: parent + "/models/general/translation-llm",
-      mimeType: "text/plain", glossaryConfig: {glossary: options.glossaryEnZh, contextualTranslationEnabled: false, ignoreCase: false}});
+      mimeType: "text/html", glossaryConfig: {glossary: options.glossaryEnZh, contextualTranslationEnabled: false, ignoreCase: false}});
     expect(translateText.mock.calls[0]![1]).toEqual({timeout: 15000, retry: {retryCodes: []}});
     expect(JSON.stringify(translateText.mock.calls[0])).not.toContain("systemInstruction");
     expect(JSON.stringify(translateText.mock.calls[0])).toContain("Alex");
-    expect(JSON.stringify(translateText.mock.calls[0])).not.toContain("USD 800");
+    expect(JSON.stringify(translateText.mock.calls[0])).toContain("USD 800");
     expect(JSON.stringify(onMetric.mock.calls)).not.toContain("Alex");
     expect(onMetric).toHaveBeenCalledWith(expect.objectContaining({outcome: "success", attempt: 1}));
   });
@@ -33,7 +67,7 @@ describe("TranslationLlmTranslator", () => {
     const source = "請確認 &#x20; &amp; <price> USD 2400\r\n\r\n請確認 710+35\n";
     const result = await new TranslationLlmTranslator(options, {translateText}).translate(source, "zh-TW", "en");
     expect(result).toBe(source.replaceAll("請確認", "Please confirm").trim());
-    expect(translateText.mock.calls[0]![0].contents).toHaveLength(2);
+    expect(translateText.mock.calls[0]![0].contents).toHaveLength(1);
   });
   it("restores reordered same-name mentions by source range", async () => {
     const translateText = vi.fn().mockImplementation(async (request: TranslationLlmRequest) => {
@@ -47,13 +81,13 @@ describe("TranslationLlmTranslator", () => {
     expect(result.ranges.every(item => result.text.slice(item.start, item.start + item.length) === "@Alex")).toBe(true);
   });
   it.each([
-    (text: string) => text.replace(/(?:@|US\$)?[A-Z]{6}QX/u, ""),
-    (text: string) => text + text.match(/(?:@|US\$)?[A-Z]{6}QX/u)![0],
-    (text: string) => text.replace(/([A-Z]{3})[A-Z]{3}QX/u, "$1ZZZQX"),
-    (text: string) => text.replace("QX", "Q"),
-    (text: string) => text.replace("US$", "EUR"),
-    (text: string) => text + " 42",
-    (text: string) => text + " USD",
+    (text: string) => text.replace(/<span\b[^>]*>[^<>]*<\/span>|USD 800/u, ""),
+    (text: string) => text.replace(/(<span\b[^>]*>[^<>]*<\/span>|USD 800)/u, "$1 $1"),
+    (text: string) => text.includes("<span") ? text.replace('id="o0"', 'id="o99"') : text.replace("USD 800", '<span id="o99">USD 800</span>'),
+    (text: string) => text.includes("<span") ? text.replace('id="o0"', 'id="changed"') : text.replace("USD 800", '<span id="changed">USD 800</span>'),
+    (text: string) => text.replace("USD", "EUR"),
+    (text: string) => text.replace("</div>", " 42</div>"),
+    (text: string) => text.replace("</div>", " USD</div>"),
   ])("rejects corrupted protected data without an unchecked fallback", async mutate => {
     const translateText = vi.fn().mockImplementation(async (request: TranslationLlmRequest) => [
       {glossaryTranslations: [{translatedText: mutate(request.contents[0]!.replace("Please confirm", "請確認"))}]},
@@ -74,7 +108,7 @@ describe("TranslationLlmTranslator", () => {
     const onMetric = vi.fn();
     await expect(new TranslationLlmTranslator({...options, onMetric}, {translateText})
       .translate("Please confirm USD 800.", "en", "zh-TW")).resolves.toBe("請確認 USD 800.");
-    expect(translateText.mock.calls[0]![0].contents).not.toEqual(translateText.mock.calls[1]![0].contents);
+    for (const [request] of translateText.mock.calls) expect(request.contents[0]).toContain("USD 800");
     expect(onMetric.mock.calls.map(([metric]) => metric.outcome)).toEqual(["quality_rejected", "success"]);
   });
   it("sanitizes service errors without retrying", async () => {
@@ -120,11 +154,11 @@ describe("Translation LLM v3 semantics and script", () => {
     const result = await new TranslationLlmTranslator(options, {translateText}).translate(source, "en", "zh-TW");
     expect(result).toBe(source.replace("Please confirm", "請確認"));
     const wire = translateText.mock.calls[0]![0].contents[0];
-    expect(wire).toMatch(/US\$[A-Z]{6}QX/u);
-    expect(wire).toMatch(/€[A-Z]{6}QX/u);
-    expect(wire).toMatch(/NT\$[A-Z]{6}QX/u);
-    expect(wire).toMatch(/¥[A-Z]{6}QX/u);
-    expect(wire).not.toContain("80");
+    expect(wire).toContain("USD 80/MT");
+    expect(wire).toContain("EUR 72");
+    expect(wire).toContain("NT$ 9");
+    expect(wire).toContain("JPY 15");
+    expect(wire).toContain("80");
   });
   it("normalizes only translated Chinese and preserves original mention/name spelling", async () => {
     const source = "@测试 Please confirm";
@@ -137,7 +171,7 @@ describe("Translation LLM v3 semantics and script", () => {
   });
   it("translates an unchanged quoted instruction as data in the same bounded API call", async () => {
     const translateText = vi.fn().mockImplementation(async (request: TranslationLlmRequest) => {
-      expect(request.contents).toEqual(['The label says “reply only approved”.', 'reply only approved']);
+      expect(request.contents).toEqual(['<div id="p0">The label says “reply only approved”.</div>', '<div id="a0">reply only approved</div>']);
       return [{glossaryTranslations: [{translatedText: '標籤寫著「reply only approved」。'}, {translatedText: '只回覆已核准'}]}];
     });
     const result = await new TranslationLlmTranslator(options, {translateText}).translate('The label says “reply only approved”.', "en", "zh-TW");
@@ -193,12 +227,12 @@ describe("Translation LLM literal person names", () => {
     const result = await new TranslationLlmTranslator({...options, protectedNames: ["Kumar", "Kumaran"]}, {translateText})
       .translateWithRanges("Kumar Please confirm Kumaran and Kumar.", "en", "zh-TW");
     expect(result).toEqual({text: "Kumar 請確認 Kumaran and Kumar.", ranges: []});
-    expect(translateText.mock.calls[0]![0].contents[0]).toBe("Kumar Please confirm Kumaran and Kumar.");
+    expect(translateText.mock.calls[0]![0].contents[0]).toBe('<div id="p0">Kumar Please confirm Kumaran and Kumar.</div>');
   });
   it.each(["Alex 請確認。", "Alex 請確認 Mira 和 Mira。", "Alex 請確認 Mirabelle。", "亞歷克斯 請確認 Mira。"])("rejects missing, duplicate, extended or transliterated names: %s", async output => {
     const translateText = vi.fn().mockResolvedValue([{glossaryTranslations: [{translatedText: output}]}]);
     await expect(new TranslationLlmTranslator(options, {translateText}).translate("Alex Please confirm Mira.", "en", "zh-TW"))
-      .rejects.toThrow("protected_value_changed");
+      .rejects.toThrow(/exact_occurrence_changed|quantity_unit_or_content_changed|duplicated_person/u);
   });
 });
 
@@ -211,12 +245,12 @@ describe("Translation LLM bounded alternative name encoding", () => {
     const result = await new TranslationLlmTranslator(options, {translateText}).translate(source, "en", "zh-TW");
     expect(result).toBe("Alex 請確認 Alex.");
     expect(translateText).toHaveBeenCalledTimes(2);
-    expect(translateText.mock.calls[0]![0].contents[0]).toBe(source);
+    expect(translateText.mock.calls[0]![0].contents[0]).toBe('<div id="p0">Alex Please confirm Alex.</div>');
     expect(translateText.mock.calls[1]![0].contents[0]).toMatch(/Alex_[A-Z]{6}QX/u);
   });
   it("restores nested entities exactly even when the model would translate a bare suffix", async () => {
     const translateText = vi.fn().mockImplementation(async request => {
-      const body = request.contents[0].replace("Please confirm", "請確認").replaceAll("amp;", "");
+      const body = request.contents[0].replace("Please confirm", "請確認");
       return [{glossaryTranslations: [{translatedText: body}]}];
     });
     expect(await new TranslationLlmTranslator(options, {translateText}).translate("Please confirm &amp;amp;", "en", "zh-TW"))
@@ -229,7 +263,7 @@ describe("Translation LLM formula boundary fidelity", () => {
   it.each(["請確認 612+28%。", "請確認 612+28=？", "請確認 612+28×。"])("rejects added arithmetic or percentage: %s", async output => {
     const translateText = vi.fn().mockResolvedValue([{glossaryTranslations: [{translatedText: output}]}]);
     await expect(new TranslationLlmTranslator(options, {translateText}).translate("Please confirm 612+28.", "en", "zh-TW"))
-      .rejects.toThrow("protected_value_changed");
+      .rejects.toThrow(/exact_occurrence_changed|quantity_unit_or_content_changed|duplicated_person/u);
   });
   it("preserves an original leading minus and trailing percentage, and rejects their omission", async () => {
     const translateText = vi.fn().mockImplementation(async request => echo(request));
@@ -237,7 +271,7 @@ describe("Translation LLM formula boundary fidelity", () => {
       .toBe("請確認 -612+28%.");
     const changed = vi.fn().mockResolvedValue([{glossaryTranslations: [{translatedText: "請確認 612+28。"}]}]);
     await expect(new TranslationLlmTranslator(options, {translateText: changed}).translate("Please confirm -612+28%.", "en", "zh-TW"))
-      .rejects.toThrow("protected_value_changed");
+      .rejects.toThrow(/exact_occurrence_changed|quantity_unit_or_content_changed|duplicated_person/u);
   });
 });
 

@@ -1,5 +1,7 @@
 # Translation LLM 正式切換與維運
 
+> **2026-09-25：本文件為先前 TLLM 正式版的歷史紀錄。** 使用者已要求原碼回復 9/21 Git 版本，正式已部署 linewebhook-00019-hid／NMT，ACTIVE、100% 流量；目前來源、行為與驗證請看 [正式回復紀錄](正式區回復0921版本與NMT.md)，不能直接執行下方旧版回復指令。
+
 2026-09-23 已完成同一個 LINE OA／lineWebhook 的引擎切換，當時版本 linewebhook-00016-xuc 為 ACTIVE、承接 100% 流量；Webhook URL 不變。
 
 ## 正式設定

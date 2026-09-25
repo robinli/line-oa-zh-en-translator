@@ -1,0 +1,30 @@
+[
+  {
+    "id": "repair-registration",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "登記的規格是560公斤 FIBC 大袋。",
+    "rubric": "Retain registered specification, 560 kg FIBC, no fallback invented."
+  },
+  {
+    "id": "repair-filing",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "小袋規格需要備案登記。",
+    "rubric": "The small bag specifications require filing/registration, not an alternative packaging plan."
+  },
+  {
+    "id": "repair-nonpackaging",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請把文件送交登記。備案是正式登記紀錄。",
+    "rubric": "Official filed registration record; no fallback plan or packaging invented."
+  },
+  {
+    "id": "repair-fallback",
+    "sourceLanguage": "zh-TW",
+    "targetLanguage": "en",
+    "source": "請保留小袋方案。\n備案為900公斤 FIBC 大袋。",
+    "rubric": "Keep small bag plan; alternative is 900 kg FIBC. No registered specification, preserve newline."
+  }
+]

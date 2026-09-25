@@ -88,7 +88,7 @@ export function createLlmWireText(prepared: PreparedTradeText, maskNames = false
     if (literalFormula(item)) {
       const key = canonicalFormula(wire);
       formulaAliases.set(key, [...formulaAliases.get(key) ?? [], item]);
-      const parts = wire.match(/\d+(?:[,.]\d+)*|[+＋=×÷*/−-]/gu);
+      const parts = wire.match(/\d+(?:[,.]\d+)*|[+＋=×÷*/−%％-]/gu);
       if (!parts || parts.join("") !== key) throw new TranslationQualityError("protected_value_changed");
       formulaPatterns.set(key, parts.map(escape).join("[ \\t]*"));
     }

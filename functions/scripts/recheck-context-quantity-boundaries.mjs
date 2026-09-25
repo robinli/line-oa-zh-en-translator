@@ -1,0 +1,21 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {TranslationLlmTranslator} from '../lib/translation-llm-translator.js';
+const parent='projects/test-project/locations/us-central1',options={projectId:'test-project',location:'us-central1',glossaryZhEn:parent+'/glossaries/zh-en',glossaryEnZh:parent+'/glossaries/en-zh'};
+const checks=[
+ {id:'input-2000',source:'A'.repeat(2000),expected:'output',body:'確認'},
+ {id:'input-2001',source:'A'.repeat(2001),expected:'rejected',reason:'invalid_input_length',calls:0,body:'確認'},
+ {id:'output-4500',source:'Please confirm.',expected:'output',body:'字'.repeat(4500)},
+ {id:'output-4501',source:'Please confirm.',expected:'rejected',reason:'output_too_long',calls:2,body:'字'.repeat(4501)},
+ {id:'missing-glossary-branch',source:'Please confirm.',expected:'rejected',reason:'invalid_response_format',calls:2,response:{translations:[{translatedText:'<div id="p0">請確認。</div>'}]}},
+ {id:'service-error',source:'Please confirm.',expected:'rejected',errorClass:'TranslationLlmServiceError',calls:1,serviceError:true},
+ {id:'pure-code-no-api',source:'PP-BK?',expected:'output',calls:0,body:''},
+ {id:'native-20',source:Array.from({length:20},()=> '@Z').join(' ')+' Please confirm.',expected:'output',ranges:Array.from({length:20},(_,i)=>({start:i*3,length:2})),echo:true},
+ {id:'native-21',source:Array.from({length:21},()=> '@Z').join(' ')+' Please confirm.',expected:'rejected',reason:'invalid_protected_range',calls:0,ranges:Array.from({length:21},(_,i)=>({start:i*3,length:2})),echo:true},
+ {id:'real-registration-positive-control',source:'登記的規格是560公斤 FIBC 大袋。',sourceLanguage:'zh-TW',targetLanguage:'en',expected:'output',body:'The registered specification is 560kg FIBC bulk bags.'},
+ {id:'fallback-positive-control',source:'📦 @Pico請確認14公斤小袋。\r\n\r請保留小袋方案。\n備案是560公斤 FIBC 大袋。',sourceLanguage:'zh-TW',targetLanguage:'en',expected:'output',ranges:[{start:3,length:5}],transform:r=>r.contents[0].replace('請確認14公斤小袋。','Please confirm the 14kg small bags.').replace('請保留小袋方案。','Please keep the small-bag plan.') .replace('替代方案是560公斤 FIBC 大袋。','The fallback is 560kg FIBC bulk bags.')}
+];
+const results=[];
+for(const c of checks){const metrics=[],attempts=[],r={id:c.id,expected:c.expected,source:c.source};const client={async translateText(req,contract){attempts.push({request:req,contract});if(c.serviceError)throw new Error('PRIVATE-SERVICE-DETAIL');if(c.response)return[c.response];return[{glossaryTranslations:[{translatedText:c.transform?c.transform(req):c.echo?req.contents[0].replace('Please confirm','請確認'):'<div id="p0">'+c.body+'</div>'}]}];}};try{const result=await new TranslationLlmTranslator({...options,onMetric:m=>metrics.push(m)},client).translateWithRanges(c.source,c.sourceLanguage??'en',c.targetLanguage??'zh-TW',{protectedRanges:c.ranges??[],userId:'SYNTHETIC-PRIVATE-ID',groupId:'SYNTHETIC-PRIVATE-GROUP'});r.status='output';r.text=result.text;r.ranges=result.ranges;}catch(e){r.status='rejected';r.reason=e.reason;r.errorClass=e.name;r.message=e.message;}r.calls=attempts.length;r.metrics=metrics;r.contracts=attempts.map(a=>a.contract);r.passed=r.status===c.expected&&(!c.reason||c.reason===r.reason)&&(!c.errorClass||c.errorClass===r.errorClass)&&(c.calls===undefined||c.calls===r.calls);r.privateDataAbsent=!JSON.stringify([attempts,metrics,r.message]).includes('SYNTHETIC-PRIVATE-')&&!JSON.stringify([metrics,r.message]).includes('PRIVATE-SERVICE-DETAIL');r.contractValid=attempts.every(a=>a.contract.timeout===15000&&a.contract.retry.retryCodes.length===0);results.push(r);console.log(JSON.stringify({id:r.id,passed:r.passed,status:r.status,reason:r.reason,calls:r.calls,privateDataAbsent:r.privateDataAbsent,contractValid:r.contractValid}));}
+writeFileSync(new URL('../../.local/tllm-context-quantity-repairs/boundaries.json',import.meta.url),JSON.stringify({at:new Date().toISOString(),syntheticOnly:true,results},null,2).replace(/\n/g,'\r\n')+'\r\n');
+
+if(results.some(r=>!r.passed||!r.privateDataAbsent||!r.contractValid)) process.exitCode=1;
