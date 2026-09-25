@@ -1,3 +1,4 @@
+import {FirestoreTranslationFailureStore} from "./translation-failure-store.js";
 import {ControlledNmtClient, AuthenticatedNmtTransport} from "./nmt-controlled-client.js";
 import {FirestoreNmtBudget} from "./nmt-budget.js";
 import {NMT_TEST_PROJECT, NMT_RUNTIME_ACCOUNT, NMT_GLOSSARIES} from "./nmt-isolation.js";
@@ -39,6 +40,7 @@ const protectedNames = defineString("TRADE_PROTECTED_NAMES", {default: DEFAULT_P
 const runtimeServiceAccount = defineString("TEST_RUNTIME_SERVICE_ACCOUNT", {default: NMT_RUNTIME_ACCOUNT});
 
 const firebaseApp = getApps()[0] ?? initializeApp();
+const translationFailureStore = new FirestoreTranslationFailureStore(getFirestore(firebaseApp));
 const conversationSettingsStore = new FirestoreConversationSettingsStore(getFirestore(firebaseApp));
 
 function controlledClient() {
@@ -103,6 +105,7 @@ export const lineWebhook = onRequest(
         ),
         replier: new LineMessagingApiReplier(lineChannelAccessToken.value()),
         settingsStore: conversationSettingsStore,
+        failureStore: translationFailureStore,
         ownerUserId: lineOwnerUserId.value(),
         logger,
         maxMessageLength: maxMessageLength.value(),

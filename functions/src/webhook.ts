@@ -1,3 +1,6 @@
+import {buildReplyMessages} from "./line-messages.js";
+import {ContentLimitError, failureReason, UNCHANGED_TRANSLATION_REPLY, TRANSLATION_FAILURE_REPLY, type FailureStage} from "./translation-failures.js";
+import type {TranslationFailureStore, TranslationFailureRecord} from "./translation-failure-store.js";
 import {
   DEFAULT_MAX_AUDIO_BYTES,
   DEFAULT_MAX_AUDIO_DURATION_MS,
@@ -85,6 +88,7 @@ export interface WebhookDependencies {
   audioContentLoader: AudioContentLoader;
   replier: LineReplier;
   settingsStore: ConversationSettingsStore;
+  failureStore: TranslationFailureStore;
   ownerUserId: string;
   logger: WebhookLogger;
   mentionAliases?: readonly MentionAlias[];
@@ -199,7 +203,9 @@ export async function processLineWebhook(
           maxAudioBytes,
           dependencies,
         );
-        outcome === "processed" ? processed += 1 : ignored += 1;
+        if (outcome === "processed") processed += 1;
+        else if (outcome === "failed") failed += 1;
+        else ignored += 1;
       } catch (error: unknown) {
         failed += 1;
         logEventFailure(
@@ -219,7 +225,9 @@ export async function processLineWebhook(
 
     try {
       const outcome = await processGroupTextMessage(event, maxMessageLength, dependencies);
-      outcome === "processed" ? processed += 1 : ignored += 1;
+      if (outcome === "processed") processed += 1;
+      else if (outcome === "failed") failed += 1;
+      else ignored += 1;
     } catch (error: unknown) {
       failed += 1;
       logEventFailure(
@@ -241,74 +249,50 @@ export async function processLineWebhook(
   return {status: 200, body: {ok: true, processed, ignored, failed}};
 }
 
+type MessageOutcome = "processed" | "ignored" | "failed";
+
 async function processGroupAudioMessage(
   event: GroupAudioMessageEvent,
   maxMessageLength: number,
   maxAudioDurationMs: number,
   maxAudioBytes: number,
   dependencies: WebhookDependencies,
-): Promise<"processed" | "ignored"> {
+): Promise<MessageOutcome> {
   const settings = await dependencies.settingsStore.getSettings(event.source.groupId);
-  if (!settings.audioTranscriptionEnabled) {
-    return "ignored";
+  if (!settings.audioTranscriptionEnabled) return replySkippedMessage(event.replyToken, dependencies);
+  let sourceText: string | null = null;
+  let languagePair: LanguagePair | undefined;
+  let replyText: string;
+  let stage: FailureStage = "input";
+  try {
+    if (event.message.duration !== undefined && event.message.duration > maxAudioDurationMs) {
+      throw new ContentLimitError("audio_too_long");
+    }
+    stage = "audio_download";
+    const audioContent = await dependencies.audioContentLoader.getMessageContent(event.message.id, maxAudioBytes);
+    stage = "transcription";
+    const transcription = await dependencies.transcriber.transcribe(audioContent, getSpeechLanguageCodes(settings.translationMode));
+    sourceText = transcription.text;
+    if (!sourceText.trim()) throw new Error("Empty transcript");
+    languagePair = settings.textTranslationEnabled ? getTextLanguagePair(sourceText, settings.translationMode) : undefined;
+    stage = "input";
+    if (sourceText.length > maxMessageLength) throw new ContentLimitError("transcript_too_long");
+    replyText = sourceText;
+    if (languagePair) {
+      stage = "translation_setup";
+      const {translator} = resolveTranslationProgram(dependencies, settings.translationMode);
+      stage = "translation";
+      const translatedText = await translator.translate(sourceText, languagePair.sourceLanguageCode, languagePair.targetLanguageCode);
+      if (!translatedText.trim()) throw new Error("Empty translation");
+      replyText = sourceText + "\n\n" + translatedText;
+    }
+    stage = "reply_validation";
+    buildReplyMessages(replyText);
+  } catch (error: unknown) {
+    return reportTranslationFailure(event, settings.translationMode, sourceText, languagePair, stage, error, dependencies);
   }
-
-  if (
-    event.message.duration !== undefined &&
-    event.message.duration > maxAudioDurationMs
-  ) {
-    dependencies.logger.warn("Ignored LINE audio that exceeds the duration limit.", {
-      webhookEventId: event.webhookEventId,
-      audioDurationMs: event.message.duration,
-      maxAudioDurationMs,
-    });
-    await dependencies.replier.replyText(
-      event.replyToken,
-      `語音長度超過 ${Math.floor(maxAudioDurationMs / 1_000)} 秒，目前無法轉為文字。`,
-    );
-    return "processed";
-  }
-
-  const audioContent = await dependencies.audioContentLoader.getMessageContent(
-    event.message.id,
-    maxAudioBytes,
-  );
-  const transcription = await dependencies.transcriber.transcribe(
-    audioContent,
-    getSpeechLanguageCodes(settings.translationMode),
-  );
-
-  const languagePair = settings.textTranslationEnabled ?
-    getTextLanguagePair(transcription.text, settings.translationMode) : undefined;
-
-  if (transcription.text.length > maxMessageLength) {
-    dependencies.logger.warn("Ignored LINE audio transcript that exceeds the length limit.", {
-      webhookEventId: event.webhookEventId,
-      transcriptLength: transcription.text.length,
-      maxMessageLength,
-    });
-    await dependencies.replier.replyText(
-      event.replyToken,
-      "語音辨識結果過長，目前無法透過 LINE 回覆。",
-    );
-    return "processed";
-  }
-
-  if (!languagePair) {
-    await dependencies.replier.replyText(event.replyToken, transcription.text);
-    return "processed";
-  }
-
-  const {translator} = resolveTranslationProgram(dependencies, settings.translationMode);
-  const translatedText = await translator.translate(
-    transcription.text,
-    languagePair.sourceLanguageCode,
-    languagePair.targetLanguageCode,
-  );
-  await dependencies.replier.replyText(
-    event.replyToken,
-    `${transcription.text}\n\n${translatedText}`,
-  );
+  // Delivery errors must not trigger another reply or be saved as translation failures.
+  await dependencies.replier.replyText(event.replyToken, replyText);
   return "processed";
 }
 
@@ -316,7 +300,7 @@ async function processGroupTextMessage(
   event: GroupTextMessageEvent,
   maxMessageLength: number,
   dependencies: WebhookDependencies,
-): Promise<"processed" | "ignored"> {
+): Promise<MessageOutcome> {
   const text = event.message.text;
   const command = text.trim();
   const conversationId = event.source.groupId;
@@ -378,62 +362,59 @@ async function processGroupTextMessage(
     return "processed";
   }
 
-  if (text.length > maxMessageLength) {
-    dependencies.logger.warn("Ignored LINE message that exceeds the length limit.", {
-      webhookEventId: event.webhookEventId,
-      messageLength: text.length,
-      maxMessageLength,
-    });
-    return "ignored";
-  }
-
   const settings = await dependencies.settingsStore.getSettings(conversationId);
-  if (!settings.textTranslationEnabled) {
-    return "ignored";
+  if (!settings.textTranslationEnabled) return replySkippedMessage(event.replyToken, dependencies);
+  if (text.length > maxMessageLength) {
+    return reportTranslationFailure(event, settings.translationMode, text, undefined, "input",
+      new ContentLimitError("text_too_long"), dependencies);
   }
 
   // Only standalone acknowledgements; keep longer business messages translatable.
   if (/^(?:ok|yes|no)[\s.!?,。！？，…]*$/iu.test(text.normalize("NFKC").trim())) {
-    return "ignored";
+    return replySkippedMessage(event.replyToken, dependencies);
   }
 
   const mentionRanges = getMentionRanges(event.message);
   const languageText = excludeTextRanges(text, mentionRanges);
   const languagePair = getTextLanguagePair(languageText, settings.translationMode);
   if (!languagePair) {
-    return "ignored";
+    return replySkippedMessage(event.replyToken, dependencies);
   }
 
-  const {translator, mentionAliases} = resolveTranslationProgram(dependencies, settings.translationMode);
-  const translationArgs: [string, string, string, TranslationContext?] = [
-    text, languagePair.sourceLanguageCode, languagePair.targetLanguageCode,
-  ];
-  const candidates = translator.translateWithRanges ?
-    findUserMentions(event.message, mentionAliases) : [];
-  const protectedRanges = [...mentionRanges];
-  for (const {start, length} of candidates) {
-    if (!protectedRanges.some((range) => range.start === start && range.length === length)) {
-      protectedRanges.push({start, length});
-    }
-  }
-  if (protectedRanges.length) translationArgs.push({protectedRanges});
   let translatedText: string;
   let translatedMentions: UserMention[] = [];
-  if (candidates.length && translator.translateWithRanges) {
-    const result = await translator.translateWithRanges(...translationArgs);
-    translatedText = result.text;
-    translatedMentions = restoreUserMentions(text, result.text, candidates, result.ranges);
-  } else {
-    translatedText = await translator.translate(...translationArgs);
-  }
-  if (normalizeTranslationText(text) === normalizeTranslationText(translatedText)) {
-    // An unchanged result may also indicate a translation issue; keep a diagnostic without content.
-    dependencies.logger.warn("Skipped an unchanged translation for a LINE group text message.", {
-      webhookEventId: event.webhookEventId,
-      sourceLanguageCode: languagePair.sourceLanguageCode,
-      targetLanguageCode: languagePair.targetLanguageCode,
-    });
-    return "ignored";
+  let stage: FailureStage = "translation_setup";
+  try {
+    const {translator, mentionAliases} = resolveTranslationProgram(dependencies, settings.translationMode);
+    const translationArgs: [string, string, string, TranslationContext?] = [
+      text, languagePair.sourceLanguageCode, languagePair.targetLanguageCode,
+    ];
+    const candidates = translator.translateWithRanges ?
+      findUserMentions(event.message, mentionAliases) : [];
+    const protectedRanges = [...mentionRanges];
+    for (const {start, length} of candidates) {
+      if (!protectedRanges.some((range) => range.start === start && range.length === length)) {
+        protectedRanges.push({start, length});
+      }
+    }
+    if (protectedRanges.length) translationArgs.push({protectedRanges});
+    stage = "translation";
+    if (candidates.length && translator.translateWithRanges) {
+      const result = await translator.translateWithRanges(...translationArgs);
+      translatedText = result.text;
+      translatedMentions = restoreUserMentions(text, result.text, candidates, result.ranges);
+    } else {
+      translatedText = await translator.translate(...translationArgs);
+    }
+    if (!translatedText.trim()) throw new Error("Empty translation");
+    if (normalizeTranslationText(text) === normalizeTranslationText(translatedText)) {
+      translatedText = UNCHANGED_TRANSLATION_REPLY;
+      translatedMentions = [];
+    }
+    stage = "reply_validation";
+    buildReplyMessages(translatedText, translatedMentions.slice(0, 20));
+  } catch (error: unknown) {
+    return reportTranslationFailure(event, settings.translationMode, text, languagePair, stage, error, dependencies);
   }
 
   if (translatedMentions.length) {
@@ -443,6 +424,37 @@ async function processGroupTextMessage(
     await dependencies.replier.replyText(event.replyToken, translatedText);
   }
   return "processed";
+}
+
+async function replySkippedMessage(replyToken: string, dependencies: WebhookDependencies): Promise<"processed"> {
+  await dependencies.replier.replyText(replyToken, UNCHANGED_TRANSLATION_REPLY);
+  return "processed";
+}
+
+async function reportTranslationFailure(
+  event: GroupTextMessageEvent | GroupAudioMessageEvent,
+  translationMode: TranslationMode,
+  sourceText: string | null,
+  languagePair: LanguagePair | undefined,
+  stage: FailureStage,
+  error: unknown,
+  dependencies: WebhookDependencies,
+): Promise<"failed"> {
+  const reason = failureReason(error, stage);
+  const record: TranslationFailureRecord = {
+    groupId: event.source.groupId, webhookEventId: event.webhookEventId,
+    messageId: event.message.id, messageType: event.message.type,
+    sourceText, translationMode, ...languagePair, stage, reason,
+  };
+  dependencies.logger.error("LINE message processing failed.", {webhookEventId: event.webhookEventId, stage, reason});
+  // Start independently so a slow/unavailable database cannot postpone the LINE reply.
+  const results = await Promise.allSettled([
+    Promise.resolve().then(() => dependencies.failureStore.save(record)),
+    Promise.resolve().then(() => dependencies.replier.replyText(event.replyToken, TRANSLATION_FAILURE_REPLY)),
+  ]);
+  if (results[0].status === "rejected") dependencies.logger.error("Failed to save translation failure.", {webhookEventId: event.webhookEventId, reason: "failure_store_error"});
+  if (results[1].status === "rejected") dependencies.logger.error("Failed to deliver translation failure symbol.", {webhookEventId: event.webhookEventId, reason: "line_reply_error"});
+  return "failed";
 }
 
 function normalizeTranslationText(text: string): string {
@@ -510,10 +522,10 @@ function formatStatus(settings: ConversationSettings): string {
 
 function formatModeEnabledMessage(translationMode: TranslationMode): string {
   if (translationMode === "zh-to-en") {
-    return "已啟用中翻英。僅將中文訊息翻譯為英文，英文文字不回覆。語音轉文字設定維持不變。";
+    return "已啟用中翻英。僅將中文訊息翻譯為英文，英文文字回覆 👆。語音轉文字設定維持不變。";
   }
   if (translationMode === "en-to-zh") {
-    return "已啟用英翻中。僅將英文訊息翻譯為繁體中文，中文文字不回覆。語音轉文字設定維持不變。";
+    return "已啟用英翻中。僅將英文訊息翻譯為繁體中文，中文文字回覆 👆。語音轉文字設定維持不變。";
   }
   if (translationMode === "zh-vi") {
     return "已啟用中越翻譯。中文訊息將翻譯為越南文，越南文訊息將翻譯為繁體中文。";
@@ -534,15 +546,11 @@ function formatModeLabel(translationMode: TranslationMode): string {
 function logEventFailure(
   message: string,
   webhookEventId: string | undefined,
-  error: unknown,
+  _error: unknown,
   dependencies: WebhookDependencies,
 ): void {
   dependencies.logger.error(message, {
     webhookEventId,
-    error: toSafeErrorMessage(error),
+    error: "event_processing_error",
   });
-}
-
-function toSafeErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown error";
 }

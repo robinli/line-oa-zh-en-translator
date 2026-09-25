@@ -1,31 +1,32 @@
 # LINE 文字翻譯與語音轉文字機器人
 
+> **最新 dev（2026-09-25 已驗證部署）：** `line-auto-translate-bot-dev`／測試 OA @249opyjp，revision `linewebhook-00004-teb`（ACTIVE、100% 流量）；相同文字譯文及正常略過回覆 👆，翻譯錯誤／限制阻擋回覆 🚧 並保存失敗內容。1,471 項應用測試、45 項工具測試、獨立驗證及五類部署後合成檢查通過；手機端顯示待人工驗收。詳見 [dev 回應與失敗記錄](docs/LINEOAdev回應與失敗記錄.md)。
+
 > **2026-09-25 分支整合：** NMT dev 程式已整合至 `codex-local`，來源提交 `85a3e38`；主目錄 `functions/` 現在包含 dev 的 NMT＋術語表入口與隔離部署防護，原有 LLM 候選亦保留。此次僅整合本機 Git，沒有部署、付費翻譯或 LINE 訊息；正式區仍以 9/21 回復版本為準。詳見 [分支整合紀錄](docs/NMT分支整合紀錄.md)。
 
 > **目前正式（2026-09-25）：** 依使用者要求，未修改程式而完整部署回 9/21 Git 版本 `0b4ec83`，新 revision 為 `linewebhook-00019-hid`（ACTIVE、100% 流量），中英／中越均使用 NMT；包含當時私訊與舊指令。121 項測試、獨立離線驗證及 4 項基本連線檢查通過。主工作區新程式保留，部署來源為 `.local/rollback-20260925-to-0921/source`；下文新功能說明不代表目前正式行為，詳見 [回復紀錄](docs/正式區回復0921版本與NMT.md)。
 
-> 2026-09-24 已部署 linewebhook-00018-huk，100% 流量；一對一私訊僅 `/我的ID`，群組功能維持。462 項 Node 22 測試及 10 項正式檢查通過，詳見 [正式切換與維運](docs/TranslationLLM正式切換與維運.md)。
+> **歷史部署（已被 9/25 正式回復取代）：** 2026-09-24 已部署 linewebhook-00018-huk，100% 流量；一對一私訊僅 `/我的ID`，群組功能維持。462 項 Node 22 測試及 10 項正式檢查通過，詳見 [正式切換與維運](docs/TranslationLLM正式切換與維運.md)。
 
-> **開始新工作前必讀：** [系統規則與知識總覽](docs/系統規則與知識總覽.md)。本專案規則、商務知識、實作索引、設定與部署注意事項以此為統一入口；修改前先完整閱讀，變更時同步維護。
+> **開始新工作前必讀：** [系統規則與知識總覽](docs/系統規則與知識總覽.md)。本專案規則、商務知識、實作索引、設定與部署注意事項以此為統一入口；修改前先讀第 1 節，再依任務索引閱讀，變更時同步維護。
 
-本儲存庫使用同一個 LINE OA／lineWebhook，依群組模式選擇不同翻譯程序；文字與語音各自啟停。一對一私訊僅回覆 `/我的ID`，其餘指令、文字與語音一律忽略。
+本工作區的 dev 使用單一 LINE OA／lineWebhook，依群組模式選擇翻譯程序；文字與語音各自啟停。一對一私訊僅回覆 `/我的ID`。正式 OA 位於獨立專案，行為以回復紀錄為準。
 
-| 程序 | 模式 | 正式引擎 |
+| 環境 | 中英引擎 | 中越引擎 |
 |---|---|---|
-| 中越 | zh-vi | Google Translate NMT，不套用商務規則 |
-| 中英 | zh-to-en／en-to-zh／zh-en | Translation LLM＋v8 商務術語與驗證 |
+| dev：line-auto-translate-bot-dev | NMT＋術語表＋程式品質檢查 | NMT |
+| 正式：line-auto-translate-bot | 9/21 原碼的 NMT | 9/21 原碼的 NMT |
 
-單一入口已正式部署；原 LINE Secrets 與群組設定沿用，指令依下表。Gemini 保留為明確指定的回復選項，不自動備援。開發沿革見 [持續轉換進度](docs/TranslationLLM持續轉換進度.md)。
+Translation LLM 與 Gemini 實作保留在儲存庫中，並非目前部署引擎；歷史評估見 [持續轉換進度](docs/TranslationLLM持續轉換進度.md)。
 
-文字整則只有 OK、Yes、No 時不翻譯、不回覆（忽略大小寫、全半形、前後空白與常見句尾標點）；含其他內容的句子仍依原有規則處理。此項 2026-09-23 已部署至 linewebhook-00015-poq，正式略過驗證通過。
+dev 群組文字整則只有 OK、Yes、No 時不翻譯、回覆 👆（忽略大小寫、全半形、前後空白與常見句尾標點）；含其他內容的句子仍依原有規則處理。歷史版本 2026-09-23 的靜默略過已由本次 dev 新需求取代。
 
 ## 技術組合
 
 - Firebase Functions 第 2 代（Node.js 22／TypeScript）
 - LINE Messaging API
-- Google Cloud Translation API v3 Translation LLM（中英正式引擎，v8 glossary）
-- Vertex AI Gemini（明確指定的回復選項）
-- Google Cloud Translation API v3 NMT（同一入口的中越程序）
+- Google Cloud Translation API v3 NMT（dev 中英搭配術語表，中越使用 NMT）
+- Translation LLM／Vertex AI Gemini（保留的歷史實作與候選）
 - Google Cloud Speech-to-Text API v2
 - Cloud Firestore
 - Vitest
@@ -51,29 +52,14 @@ firebase.cmd emulators:start --only functions
 
 ## 雲端設定與部署
 
-沿用 functions/、原 LINE Secrets、Firestore lineTranslationGroups 及既有 Webhook URL，不需要第二個 LINE 帳號或 Function。2026-09-23 已部署第 16 版；下列為正式操作流程，操作前依系統總覽核對版本、備份與驗收狀態。
+目前 dev 與正式使用不同 Google Cloud 專案、LINE OA 及憑證。dev 部署須使用隔離設定與既有 NMT 防護入口，核對專案、登入身分、runtime、術語資源與帳本，並通過 predeploy 檢查。
 
-1. 建立 Firebase 專案、啟用 Blaze Plan、Vertex AI API、Cloud Translation API、Cloud Speech-to-Text API，並建立預設 Cloud Firestore database。
-2. 將 Firebase 專案 ID 寫入 `.firebaserc`。
-3. 將 Function 服務帳戶授予 `roles/cloudtranslate.user`、`roles/speech.client` 與 `roles/datastore.user`，另授予只含 `aiplatform.endpoints.predict` 與 `serviceusage.services.use` 的自訂角色供 Gemini 回復使用；詳見 [商務翻譯優化](docs/商務翻譯優化.md)。
-4. 設定 LINE Secret：
+- [分支整合紀錄](docs/NMT分支整合紀錄.md)：工作區、分支與設定位置。
+- [隔離測試環境維運](docs/NMT隔離測試環境維運.md)：dev 登入、防護與部署流程。
+- [dev 回應與失敗記錄](docs/LINEOAdev回應與失敗記錄.md)：最新部署與驗證證據。
+- [正式回復紀錄](docs/正式區回復0921版本與NMT.md)：正式來源與目前行為；不可將本機 dev 候選直接視為正式部署來源。
 
-   ```powershell
-   firebase.cmd functions:secrets:set LINE_CHANNEL_SECRET
-   firebase.cmd functions:secrets:set LINE_CHANNEL_ACCESS_TOKEN
-   firebase.cmd functions:secrets:set LINE_OWNER_USER_ID
-   ```
-
-5. 依 [正式設定](docs/TranslationLLM正式切換與維運.md) 設定 translation-llm 與 us-central1 的 v8 glossary；新專案需先建立相同版本的術語資源，不能只複製資源名稱。驗證並部署：
-
-   ```powershell
-   npm.cmd run verify
-   firebase.cmd deploy --only functions:lineWebhook
-   ```
-
-6. 將 `lineWebhook` URL 設為 LINE Webhook URL，啟用 Webhook，並開啟「Allow bot to join group chats」。
-
-## 翻譯指令
+## dev 翻譯指令
 
 群組提供下列翻譯與設定指令；`/我的ID` 僅限私訊。群組 `/翻譯設定` 顯示狀態與操作清單，選擇模式後，後續文字與語音翻譯交由對應程序。
 
@@ -86,7 +72,7 @@ firebase.cmd emulators:start --only functions
 | `/啟用文字翻譯` | 依目前模式啟用文字翻譯 |
 | `/停用文字翻譯` | 停用文字翻譯，保留模式 |
 | `/啟用語音轉文字` | 啟用語音辨識；逐字稿依文字翻譯設定處理 |
-| `/停用語音轉文字` | 停止下載、辨識及回覆語音 |
+| `/停用語音轉文字` | 停止下載與辨識，群組語音回覆 👆 |
 | `/翻譯設定` | 顯示狀態與操作指令 |
 | `/我的ID` | 一對一私訊取得自己的 LINE userId |
 
@@ -96,25 +82,25 @@ firebase.cmd emulators:start --only functions
 
 群組只有 `LINE_OWNER_USER_ID` 指定的帳號能選擇模式、啟用或停用；任何群組成員都能查詢狀態及設定說明。一對一私訊僅回覆 `/我的ID`；包括管理員在內，其餘訊息不回覆、不修改設定。
 
-## 訊息處理規則
+## dev 訊息處理規則
 
 - 模式分別為 `zh-to-en`、`en-to-zh`、`zh-en`、`zh-vi`；沒有模式時使用中英雙向。
-- 文字翻譯關閉時，不翻譯文字訊息，也不翻譯語音逐字稿。
-- 單向模式忽略反方向的文字訊息。文字先排除原生 @ 顯示名稱；文字正文與語音逐字稿皆以含中文視為中文，否則含拉丁字母視為模式中的英文或越南文；語音逐字稿沒有原生 mention metadata。中英混合視為中文，英翻中模式不翻譯此類內容。
-- 純數字、符號或 Emoji 不呼叫翻譯服務。
-- 群組文字翻譯成功後，若譯文與原文相同（統一全半形相容字元、忽略首尾空白、合併連續空白與換行，並忽略常見標點兩側空白），不回覆並計為 ignored。仍先呼叫翻譯服務，不以英文字母或大寫判斷為代碼；相同譯文只記錄不含訊息內容的診斷日誌，以便排查翻譯異常。群組語音回覆維持原有行為；私訊不執行翻譯。
-- 語音轉文字關閉時，不下載、不辨識、不回覆語音。
+- 文字翻譯關閉時，群組文字回覆 👆，語音逐字稿不附翻譯。
+- 單向模式對反方向群組文字回覆 👆。文字先排除原生 @ 顯示名稱；文字正文與語音逐字稿皆以含中文視為中文，否則含拉丁字母視為模式中的英文或越南文；語音逐字稿沒有原生 mention metadata。中英混合視為中文，英翻中模式不翻譯此類內容。
+- 純數字、符號或 Emoji 的群組文字回覆 👆，不呼叫翻譯服務。
+- 群組文字翻譯成功後，若譯文與原文相同（統一全半形相容字元、忽略首尾空白、合併連續空白與換行，並忽略常見標點兩側空白），只回覆 👆 並計為 processed。仍先呼叫翻譯服務，不以英文字母或大寫判斷為代碼；相同譯文不保存失敗記錄。群組語音回覆維持原有行為；私訊不執行翻譯。
+- 語音轉文字關閉時，不下載、不辨識，群組語音回覆 👆。
 - 語音轉文字開啟時，先辨識逐字稿，再依文字翻譯開關及方向決定是否翻譯。符合條件回覆「逐字稿＋空行＋翻譯」，否則只回覆逐字稿。
 - 語音辨識依模式使用繁體中文＋英文，或繁體中文＋越南文。逐字稿中的指令只作為內容，不執行設定變更。
 - 群組使用原始 groupId，各群組設定獨立；歷史 user:{userId} 私訊設定保留但不再讀寫。
-- Firestore collection 維持 `lineTranslationGroups`。新設定為 `textTranslationEnabled`、`audioTranscriptionEnabled`、`translationMode`、`changedBy`、`changedAt`。
+- 聊天室設定保存在 Firestore `lineTranslationGroups`。新設定為 `textTranslationEnabled`、`audioTranscriptionEnabled`、`translationMode`、`changedBy`、`changedAt`。
 - 舊文件的兩個開關若尚未存在，分別沿用舊 `enabled` 值；明確的 true／false 優先。新操作只 merge 更新指定開關，不修改舊 enabled，避免另一項功能的預設狀態被連動。
-- 不保存訊息、音訊、逐字稿或翻譯結果。
+- 正常訊息不保存；翻譯錯誤或阻擋的原文／可取得逐字稿保存在 `lineTranslationFailures` 至手動清除，不存音訊或被拒譯文。
 - 語音採同步辨識，預設限制為 59 秒與 10 MB；可透過 `MAX_AUDIO_DURATION_MS`、`MAX_AUDIO_BYTES` 調低。
 - 文字與逐字稿預設限制為 2,000 個 JavaScript 字元，可透過 `MAX_MESSAGE_LENGTH` 調整。
 - 圖片、貼圖、影片、檔案及外部來源音訊不處理。
-- 單筆設定、翻譯、語音辨識或 LINE 回覆失敗時會記錄安全日誌，Webhook 仍回傳 200，避免 redelivery 造成重複回覆。
-- 翻譯服務失敗或譯文未通過驗證時，不回覆失敗提示、不發送未驗證譯文；保留後台錯誤紀錄並繼續處理其他訊息。
+- 單筆設定、翻譯、語音辨識或 LINE 回覆失敗時會記錄安全日誌，Webhook 仍回傳 200 並繼續同批事件；這不保證整個 webhook 的發送去重。
+- 翻譯服務失敗或譯文未通過驗證時回覆 🚧、保存失敗記錄並繼續處理其他訊息；不發送未驗證譯文。
 
 ## 將 LINE OA 加入群組
 
@@ -131,9 +117,13 @@ firebase.cmd emulators:start --only functions
 npm.cmd run verify
 ```
 
-自動化測試不會呼叫 LINE 或 Google Cloud，外部服務均使用 mock。目前共有 461 項測試（Node.js 22.23.2，2026-09-23）。
+最近完整離線驗證（2026-09-25，Node.js 22.23.2）：1,471 項應用測試、45 項工具測試、型別檢查與建置通過；另有 162 項獨立測試與 16 組邊界控制。部署後五類合成 webhook 檢查未呼叫翻譯 API 或發送真人訊息；手機端尚待驗收。
 
-## 最近部署
+Firestore emulator 保存／去重驗證另見 [dev 回應與失敗記錄](docs/LINEOAdev回應與失敗記錄.md)。
+
+## 歷史部署與功能沿革
+
+以下為當時結果，不能作為目前環境狀態；最新 dev 與正式版本見本文開頭。
 
 2026-09-23 已部署 linewebhook-00016-xuc：同一入口中英 Translation LLM、中越 NMT，ACTIVE 且 100% 流量；461 項測試、15 項正式檢查和 runtime glossary 存取驗證通過，未向真人發送測試訊息。
 
@@ -151,7 +141,7 @@ npm.cmd run verify
 
 新增多方貿易翻譯規則、數字與人名保護、術語驗證、品質失敗時靜默略過，以及 @ 中文名稱不影響正文語言的修正。詳細設定、限制、合成評估與部署前置條件見 [商務翻譯優化](docs/商務翻譯優化.md)。商務翻譯已於 2026-09-22 部署；原生 @ 提及亦已部署，詳見下方。
 
-## 原生 @ 提及（已部署）
+## 原生 @ 提及（歷史部署）
 
 Wei bro 與 Wei brother 已對應到同一位已指定的 LINE 使用者；翻譯回覆也能保留原訊息的原生 @ 提及，送出前確認對方在目前群組，無法確認時保留純文字。仍遵守原翻譯方向與「相同譯文不回覆」規則。詳見 [LINE 原生提及](docs/LINE原生提及.md)。
 
