@@ -69,14 +69,14 @@ describe("processLineWebhook", () => {
     ["en-to-zh", "Meeting 明天下午三點"],
     ["zh-to-en", "123 😀"],
     ["en-to-zh", "123 😀"],
-  ] as const)("silently ignores %s text %s", async (mode, text) => {
+  ] as const)("acknowledges skipped %s text %s", async (mode, text) => {
     vi.mocked(settingsStore.getSettings).mockResolvedValue({
       textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: mode,
     });
     const result = await callWebhook({events: [groupTextEvent(text)]});
     expect(translator.translate).not.toHaveBeenCalled();
-    expect(replier.replyText).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "👆");
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
   it.each([
@@ -126,7 +126,7 @@ describe("processLineWebhook", () => {
     expect(translator.translate).toHaveBeenCalledTimes(translations);
     expect(audioContentLoader.getMessageContent).toHaveBeenCalledTimes(downloads);
     expect(transcriber.transcribe).toHaveBeenCalledTimes(downloads);
-    expect(replier.replyText).toHaveBeenCalledTimes(replies);
+    expect(replier.replyText).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -267,7 +267,7 @@ describe("processLineWebhook", () => {
     const result = await callWebhook({events: [groupTextEvent("123 😀")]});
 
     expect(translator.translate).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
   it.each([
@@ -276,7 +276,7 @@ describe("processLineWebhook", () => {
     ["zh-vi", "260921 BGYD", "260921 BGYD", "vi", "zh-TW"],
     ["zh-en", " \t260921  BGYD\r\n", "260921\nBGYD", "en", "zh-TW"],
     ["zh-to-en", "請檢查批號", "請檢查批號", "zh-TW", "en"],
-  ] as const)("skips unchanged group translations in %s for %j", async (mode, text, translation, source, target) => {
+  ] as const)("acknowledges unchanged group translations in %s for %j", async (mode, text, translation, source, target) => {
     vi.mocked(settingsStore.getSettings).mockResolvedValue({
       textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: mode,
     });
@@ -285,18 +285,11 @@ describe("processLineWebhook", () => {
     const result = await callWebhook({events: [groupTextEvent(text)]});
 
     expect(translator.translate).toHaveBeenCalledWith(text, source, target);
-    expect(replier.replyText).not.toHaveBeenCalled();
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "👆");
     expect(result).toEqual({
-      status: 200, body: {ok: true, processed: 0, ignored: 1, failed: 0},
+      status: 200, body: {ok: true, processed: 1, ignored: 0, failed: 0},
     });
-    expect(logger.warn).toHaveBeenCalledExactlyOnceWith(
-      "Skipped an unchanged translation for a LINE group text message.",
-      {
-        webhookEventId: "webhook-event-id",
-        sourceLanguageCode: source,
-        targetLanguageCode: target,
-      },
-    );
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -337,8 +330,9 @@ describe("processLineWebhook", () => {
     });
 
     expect(translator.translate).toHaveBeenCalledTimes(2);
-    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "金屬絲");
-    expect(result.body).toMatchObject({processed: 1, ignored: 1, failed: 0});
+    expect(replier.replyText).toHaveBeenNthCalledWith(1, "reply-token", "👆");
+    expect(replier.replyText).toHaveBeenNthCalledWith(2, "reply-token", "金屬絲");
+    expect(result.body).toMatchObject({processed: 2, ignored: 0, failed: 0});
   });
 
   it("preserves group audio transcription replies when the translation is unchanged", async () => {
@@ -446,7 +440,7 @@ describe("processLineWebhook", () => {
 
     expect(translator.translate).not.toHaveBeenCalled();
     expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 0, ignored: 2, failed: 0});
+    expect(result.body).toMatchObject({processed: 2, ignored: 0, failed: 0});
   });
 
   it("rejects audio above the synchronous recognition duration limit", async () => {
@@ -455,9 +449,9 @@ describe("processLineWebhook", () => {
     expect(audioContentLoader.getMessageContent).not.toHaveBeenCalled();
     expect(replier.replyText).toHaveBeenCalledWith(
       "audio-reply-token",
-      expect.stringContaining("59 秒"),
+      "🚧",
     );
-    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
+    expect(result.body).toMatchObject({processed: 0, ignored: 0, failed: 1});
   });
 
   it("returns the sender user ID for the private ID command", async () => {
@@ -598,12 +592,12 @@ describe("processLineWebhook", () => {
     expect(replier.replyText).toHaveBeenCalledOnce();
   });
 
-  it("ignores messages above the configured length limit", async () => {
+  it("records and reports messages above the configured length limit", async () => {
     const result = await callWebhook({events: [groupTextEvent("中文太長")]}, 3);
 
     expect(translator.translate).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({processed: 0, ignored: 1, failed: 0});
-    expect(logger.warn).toHaveBeenCalledOnce();
+    expect(result.body).toMatchObject({processed: 0, ignored: 0, failed: 1});
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "🚧");
   });
 
   it("rejects invalid signatures and invalid JSON", async () => {
@@ -632,26 +626,26 @@ describe("processLineWebhook", () => {
       body: {ok: true, processed: 0, ignored: 0, failed: 1},
     });
     expect(logger.error).toHaveBeenCalledWith(
-      "Failed to process a LINE chat message.",
-      expect.objectContaining({error: "API unavailable"}),
+      "LINE message processing failed.",
+      expect.objectContaining({stage: "translation", reason: "translation_service_error"}),
     );
   });
 
 
-  it("ignores a translation that changes only punctuation width", async () => {
+  it("acknowledges a translation that changes only punctuation width", async () => {
     vi.mocked(translator.translate).mockResolvedValue("PP-BK？");
     const result = await callWebhook({events: [groupTextEvent("PP-BK?")]});
     expect(translator.translate).toHaveBeenCalledOnce();
-    expect(replier.replyText).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({ignored: 1});
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "👆");
+    expect(result.body).toMatchObject({processed: 1, ignored: 0});
   });
 
-  it.each(["PP-BK?", "PH-BK?", "WIRE?"])("does not reply when %s only gains punctuation whitespace", async (text) => {
+  it.each(["PP-BK?", "PH-BK?", "WIRE?"])("replies with the unchanged symbol when %s only gains punctuation whitespace", async (text) => {
     vi.mocked(translator.translate).mockResolvedValue(text.replace("?", " ?"));
     const result = await callWebhook({events: [groupTextEvent(text)]});
     expect(translator.translate).toHaveBeenCalledOnce();
-    expect(replier.replyText).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({ignored: 1, failed: 0});
+    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "👆");
+    expect(result.body).toMatchObject({processed: 1, ignored: 0, failed: 0});
   });
 
   it.each(["zh-en", "en-to-zh", "zh-to-en"] as const)(
@@ -666,7 +660,7 @@ describe("processLineWebhook", () => {
       await callWebhook({events: [event]});
       if (mode === "zh-to-en") {
         expect(translator.translate).not.toHaveBeenCalled();
-        expect(replier.replyText).not.toHaveBeenCalled();
+        expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "👆");
       } else {
         expect(translator.translate).toHaveBeenCalledExactlyOnceWith(text, "en", "zh-TW",
           {protectedRanges: [{start: 0, length: mention.length}]});
@@ -685,7 +679,7 @@ describe("processLineWebhook", () => {
     Object.assign(event.message, {mention: {mentionees: [{index: 0, length: event.message.text.length}]}});
     const result = await callWebhook({events: [event]});
     expect(translator.translate).not.toHaveBeenCalled();
-    expect(result.body).toMatchObject({ignored: 1});
+    expect(result.body).toMatchObject({processed: 1, ignored: 0});
   });
 
   it("preserves untrimmed native mention offsets", async () => {
@@ -700,7 +694,7 @@ describe("processLineWebhook", () => {
 
   it.each(["group text", "group audio"].flatMap((kind) =>
     ["quality", "service"].map((failure) => ({kind, failure}))))(
-    "silently handles $failure failure for $kind", async ({kind, failure}) => {
+    "records and reports $failure failure for $kind", async ({kind, failure}) => {
       vi.mocked(translator.translate).mockRejectedValue(failure === "quality" ?
         new TranslationQualityError("protected_value_changed") : new TranslationServiceError());
       const events = {
@@ -709,26 +703,27 @@ describe("processLineWebhook", () => {
       const result = await callWebhook({events: [events[kind as keyof typeof events]]});
       expect(result.status).toBe(200);
       expect(result.body).toMatchObject({failed: 1, processed: 0});
-      expect(replier.replyText).not.toHaveBeenCalled();
+      expect(replier.replyText).toHaveBeenCalledExactlyOnceWith(expect.any(String), "🚧");
       expect(logger.error).toHaveBeenCalledOnce();
       expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain("800");
     },
   );
 
-  it("continues the batch after silently skipping a failed translation", async () => {
+  it("continues the batch after reporting a failed translation", async () => {
     vi.mocked(translator.translate).mockRejectedValueOnce(new TranslationQualityError("pricing_terminology"))
       .mockResolvedValueOnce("Hello");
     const result = await callWebhook({events: [groupTextEvent("底價"), groupTextEvent("你好")]});
     expect(result.body).toMatchObject({failed: 1, processed: 1});
-    expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "Hello");
+    expect(replier.replyText).toHaveBeenNthCalledWith(1, "reply-token", "🚧");
+    expect(replier.replyText).toHaveBeenNthCalledWith(2, "reply-token", "Hello");
   });
 
   it.each(["OK", "Ok", "ok", " YES ", "No", "no.", "Yes!", "ＯＫ！", "No?", "OK...", "Yes\n"])(
-    "ignores standalone acknowledgement %s in group and private text", async (text) => {
+    "acknowledges %s in group but keeps private text silent", async (text) => {
       const result = await callWebhook({events: [groupTextEvent(text), userTextEvent(text)]});
       expect(translator.translate).not.toHaveBeenCalled();
-      expect(replier.replyText).not.toHaveBeenCalled();
-      expect(result.body).toMatchObject({processed: 0, ignored: 2, failed: 0});
+      expect(replier.replyText).toHaveBeenCalledExactlyOnceWith("reply-token", "👆");
+      expect(result.body).toMatchObject({processed: 1, ignored: 1, failed: 0});
     },
   );
 
@@ -749,6 +744,7 @@ describe("processLineWebhook", () => {
       audioContentLoader,
       replier,
       settingsStore,
+      failureStore: {save: vi.fn().mockResolvedValue(undefined)},
       ownerUserId,
       logger,
     };

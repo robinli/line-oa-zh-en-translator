@@ -21,7 +21,8 @@ function setup(mode:TranslationMode="zh-en",failure?:"quality"|"budget") {
  const english=vi.fn(()=>({translator:new NmtGlossaryTranslator({projectId,location:"us-central1",glossaryZhEn:parent+"/glossaries/nmt-trade-zh-en-v12",glossaryEnZh:parent+"/glossaries/nmt-trade-en-zh-v9"},controlled),mentionAliases:[]}));
  const deps:WebhookDependencies={channelSecret:"synthetic",getTranslationProgram:createTranslationProgramRouter(english,()=>new VietnameseNmtTranslator(projectId,controlled)),
  transcriber:{transcribe:vi.fn(async()=>({text:"你好",languageCode:"cmn-Hant-TW"}))},audioContentLoader:{getMessageContent:vi.fn(async()=>Buffer.from('synthetic'))},replier:{replyText:vi.fn(async()=>{})},ownerUserId:"",
- settingsStore:{getSettings:vi.fn(async()=>({textTranslationEnabled:true,audioTranscriptionEnabled:true,translationMode:mode})),setModeAndEnabled:vi.fn(),setTextTranslationEnabled:vi.fn(),setAudioTranscriptionEnabled:vi.fn()},logger:{info:vi.fn(),warn:vi.fn(),error:vi.fn()}};
+ failureStore: {save: vi.fn().mockResolvedValue(undefined)},
+    settingsStore:{getSettings:vi.fn(async()=>({textTranslationEnabled:true,audioTranscriptionEnabled:true,translationMode:mode})),setModeAndEnabled:vi.fn(),setTextTranslationEnabled:vi.fn(),setAudioTranscriptionEnabled:vi.fn()},logger:{info:vi.fn(),warn:vi.fn(),error:vi.fn()}};
  const call=async(events:unknown[])=>{const rawBody=Buffer.from(JSON.stringify({events}));return processLineWebhook({method:"POST",rawBody,signature:createHmac('sha256','synthetic').update(rawBody).digest('base64')},deps);};
  return{deps,call,send,reserve,english,used:()=>ledger.used};
 }
@@ -30,8 +31,8 @@ it("retains private-only ID and safe empty-owner bootstrap without initializing 
  const s=setup();await s.call([event('/我的ID','user'),event('你好','user'),event('/中翻英','user'),event('/中翻英','group'),event('/中翻英','group','')]);
  expect(s.english).not.toHaveBeenCalled();expect(s.send).not.toHaveBeenCalled();expect(s.deps.settingsStore.getSettings).not.toHaveBeenCalled();expect(s.deps.settingsStore.setModeAndEnabled).not.toHaveBeenCalled();expect(s.deps.replier.replyText).toHaveBeenCalledWith('synthetic-token',expect.stringContaining('Usynthetic'));
 });
-it.each(['quality','budget'] as const)("keeps %s failure silent through real NMT adapter",async failure=>{
- const s=setup('zh-en',failure),result=await s.call([event('你好')]);expect(result.body.failed).toBe(1);expect(s.deps.replier.replyText).not.toHaveBeenCalled();expect(s.send).toHaveBeenCalledTimes(failure==='budget'?0:1);expect(JSON.stringify(vi.mocked(s.deps.logger.error).mock.calls)).not.toContain('你好');
+it.each(['quality','budget'] as const)("records and reports %s failure through real NMT adapter",async failure=>{
+ const s=setup('zh-en',failure),result=await s.call([event('你好')]);expect(result.body.failed).toBe(1);expect(s.deps.replier.replyText).toHaveBeenCalledExactlyOnceWith('synthetic-token','🚧');expect(s.deps.failureStore.save).toHaveBeenCalledWith(expect.objectContaining({sourceText:'你好',stage:'translation'}));expect(s.send).toHaveBeenCalledTimes(failure==='budget'?0:1);expect(JSON.stringify(vi.mocked(s.deps.logger.error).mock.calls)).not.toContain('你好');
 });
 it("shares one manual ledger across English and Vietnamese while keeping glossaries separate",async()=>{
  const s=setup();await s.call([event('你好')]);vi.mocked(s.deps.settingsStore.getSettings).mockResolvedValue({textTranslationEnabled:true,audioTranscriptionEnabled:true,translationMode:'zh-vi'});await s.call([event('你好')]);

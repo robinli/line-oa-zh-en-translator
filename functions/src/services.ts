@@ -1,3 +1,4 @@
+import {ContentLimitError} from "./translation-failures.js";
 import type {TranslationMode} from "./domain.js";
 import type {RestoredTextRange} from "./message-text.js";
 import {LineGroupMemberVerifier, type GroupMemberVerifier, type MentionReplyContext} from "./mentions.js";
@@ -308,7 +309,7 @@ export class LineMessagingApiContentLoader implements AudioContentLoader {
       totalBytes += buffer.length;
       if (totalBytes > maxBytes) {
         stream.destroy?.();
-        throw new Error(`LINE audio content exceeds the ${maxBytes}-byte limit.`);
+        throw new ContentLimitError("audio_too_large", `LINE audio content exceeds the ${maxBytes}-byte limit.`);
       }
       chunks.push(buffer);
     }

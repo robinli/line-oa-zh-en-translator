@@ -27,6 +27,7 @@ function setup(initial: Record<string, unknown> = {}, englishBroken = false) {
   const createVietnamese = vi.fn(() => vietnamese);
   const router = createTranslationProgramRouter(createEnglish, createVietnamese);
   const dependencies: WebhookDependencies = {
+    failureStore: {save: vi.fn().mockResolvedValue(undefined)},
     settingsStore, channelSecret: "test", ownerUserId: "owner", getTranslationProgram: router,
     transcriber: {transcribe: vi.fn().mockResolvedValue({text: "你好"})},
     audioContentLoader: {getMessageContent: vi.fn().mockResolvedValue(Buffer.from("audio"))},
@@ -93,7 +94,9 @@ describe("single webhook translation routing", () => {
     const result = await t.send([t.event("你好"), t.event("你好", "other"), t.event("/翻譯設定")]);
     expect(result.body).toMatchObject({processed: 2, failed: 1});
     expect(t.vietnamese.translate).toHaveBeenCalledOnce();
-    expect(t.dependencies.replier.replyText).toHaveBeenCalledTimes(2);
+    expect(t.dependencies.replier.replyText).toHaveBeenCalledTimes(3);
+    expect(t.dependencies.replier.replyText).toHaveBeenNthCalledWith(1, expect.any(String), "🚧");
+    expect(t.dependencies.failureStore.save).toHaveBeenCalledWith(expect.objectContaining({stage: "translation_setup"}));
   });
   it("does not initialize on ignored acknowledgements, one-way text or invalid signatures", async () => {
     const t = setup({translationMode: "zh-to-en", enabled: true});

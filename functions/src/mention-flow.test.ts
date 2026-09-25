@@ -22,6 +22,7 @@ function setup() {
     transcriber: {transcribe: vi.fn()}, audioContentLoader: {getMessageContent: vi.fn()},
     replier: new LineMessagingApiReplier("unused", {replyMessage}, {isMember}),
     mentionAliases: aliases,
+    failureStore: {save: vi.fn().mockResolvedValue(undefined)},
     settingsStore: {getSettings: vi.fn().mockResolvedValue({
       textTranslationEnabled: true, audioTranscriptionEnabled: false, translationMode: "zh-en",
     })} as unknown as ConversationSettingsStore,
@@ -72,11 +73,11 @@ describe("translation to native mention integration", () => {
     }]);
     expect(generate.mock.calls[0]![0].input).not.toContain(userId);
   });
-  it("still ignores unchanged translations instead of replying only to add a mention", async () => {
+  it("replies with the unchanged symbol without adding mentions", async () => {
     const {call, replyMessage, isMember, generate} = setup();
-    expect((await call("Wei brother?")).body).toMatchObject({ignored: 1, failed: 0});
+    expect((await call("Wei brother?")).body).toMatchObject({processed: 1, ignored: 0, failed: 0});
     expect(generate).toHaveBeenCalledOnce();
-    expect(replyMessage).not.toHaveBeenCalled();
+    expect(replyMessage).toHaveBeenCalledExactlyOnceWith({replyToken: "reply", messages: [{type: "text", text: "👆"}]});
     expect(isMember).not.toHaveBeenCalled();
   });
   it("does not guess an ID from a plain name", async () => {
@@ -100,9 +101,9 @@ describe("translation to native mention integration", () => {
     });
     expect((await call("@甲 Please confirm.", {mentionees: [
       {index: 0, length: 2, type: "user", userId},
-    ]})).body).toMatchObject({ignored: 1});
+    ]})).body).toMatchObject({processed: 1, ignored: 0});
     expect(generate).not.toHaveBeenCalled();
-    expect(replyMessage).not.toHaveBeenCalled();
+    expect(replyMessage).toHaveBeenCalledOnce();
   });
   it("does not attempt mentions when using an engine without reliable range restoration", async () => {
     const {call, dependencies, replyMessage, isMember} = setup();
