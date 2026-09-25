@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 // Only this checked-in synthetic dataset is sent. Never accepts a customer-chat input file.
 import {readFile, writeFile, mkdir} from "node:fs/promises";
 import {BusinessTranslator, VertexTextGenerator} from "../lib/business-translator.js";

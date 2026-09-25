@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 // Fixed synthetic regression only; no LINE clients, production settings or deployment.
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';

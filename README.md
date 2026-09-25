@@ -1,5 +1,7 @@
 # LINE 文字翻譯與語音轉文字機器人
 
+> **2026-09-25 分支整合：** NMT dev 程式已整合至 `codex-local`，來源提交 `85a3e38`；主目錄 `functions/` 現在包含 dev 的 NMT＋術語表入口與隔離部署防護，原有 LLM 候選亦保留。此次僅整合本機 Git，沒有部署、付費翻譯或 LINE 訊息；正式區仍以 9/21 回復版本為準。詳見 [分支整合紀錄](docs/NMT分支整合紀錄.md)。
+
 > **目前正式（2026-09-25）：** 依使用者要求，未修改程式而完整部署回 9/21 Git 版本 `0b4ec83`，新 revision 為 `linewebhook-00019-hid`（ACTIVE、100% 流量），中英／中越均使用 NMT；包含當時私訊與舊指令。121 項測試、獨立離線驗證及 4 項基本連線檢查通過。主工作區新程式保留，部署來源為 `.local/rollback-20260925-to-0921/source`；下文新功能說明不代表目前正式行為，詳見 [回復紀錄](docs/正式區回復0921版本與NMT.md)。
 
 > 2026-09-24 已部署 linewebhook-00018-huk，100% 流量；一對一私訊僅 `/我的ID`，群組功能維持。462 項 Node 22 測試及 10 項正式檢查通過，詳見 [正式切換與維運](docs/TranslationLLM正式切換與維運.md)。
@@ -37,7 +39,7 @@ npm.cmd install --prefix functions
 npm.cmd run verify
 ```
 
-`verify` 會依序執行 TypeScript 型別檢查、自動化測試與正式建置。Firebase 部署前也會執行相同檢查。
+`verify` 會依序執行 TypeScript 型別檢查、自動化測試、建置與 NMT 工具測試；工具測試需要 [分支整合紀錄](docs/NMT分支整合紀錄.md) 所列的本機非機密資源紀錄。Firebase 部署前也會執行相同檢查。
 
 若要使用 Firebase Emulator，複製 `.firebaserc.example` 為 `.firebaserc` 並填入專案 ID，再複製 `functions/.secret.local.example` 為 `functions/.secret.local` 並填入測試憑證：
 

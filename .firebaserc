@@ -1,5 +1,5 @@
 {
   "projects": {
-    "default": "line-auto-translate-bot"
+    "test": "line-auto-translate-bot-dev"
   }
 }

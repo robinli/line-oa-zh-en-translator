@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 // Fixed synthetic data only. Raw responses here are synthetic; production never logs them.
 import {readFile, writeFile, mkdir} from "node:fs/promises";
 import {createHash} from "node:crypto";

@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 // Evaluates only checked-in synthetic cases. Never reads customer chat or LINE credentials.
 // This is an assessment harness, not an engine wired into the production webhook.
 import {readFile, writeFile, mkdir} from "node:fs/promises";

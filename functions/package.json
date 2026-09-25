@@ -18,7 +18,12 @@
     "evaluate:tllm": "node scripts/evaluate-tllm.mjs",
     "provision:tllm-glossaries": "node scripts/provision-tllm-glossaries.mjs",
     "provision:tllm-glossaries:v2": "node scripts/provision-tllm-glossaries-v2.mjs",
-    "provision:tllm-glossaries:v5": "node scripts/provision-tllm-glossaries-v5.mjs"
+    "provision:tllm-glossaries:v5": "node scripts/provision-tllm-glossaries-v5.mjs",
+    "test:nmt-tools": "node --test scripts/test-nmt-tools.mjs scripts/test-nmt-repairs.mjs scripts/test-nmt-glossary-v9.mjs scripts/test-nmt-plan.mjs scripts/test-nmt-output-safety.mjs scripts/test-nmt-successor.mjs scripts/test-nmt-tracking-mode.mjs scripts/test-nmt-wire-change.mjs",
+    "test:nmt-ledger": "node scripts/test-nmt-ledger-emulator.mjs",
+    "evaluate:nmt": "node scripts/evaluate-nmt.mjs",
+    "replay:nmt": "node scripts/replay-nmt.mjs",
+    "test:nmt-tracking-ledger": "node scripts/test-nmt-tracking-emulator.mjs"
   },
   "dependencies": {
     "@google-cloud/speech": "^8.0.1",

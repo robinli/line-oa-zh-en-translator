@@ -1,3 +1,4 @@
+import {NmtGlossaryTranslator, type NmtGlossaryClient, type NmtGlossaryMetric} from "./nmt-glossary-translator.js";
 import {BusinessTranslator, VertexTextGenerator} from "./business-translator.js";
 import {TranslationLlmTranslator, type TranslationLlmMetric} from "./translation-llm-translator.js";
 import {GoogleCloudTranslator, type Translator} from "./services.js";
@@ -9,11 +10,18 @@ export interface TranslationConfiguration {
   location: string;
   protectedNames: string;
   onValidationRetry?: (reason: string) => void;
+  nmtGlossary?: {location: string; glossaryZhEn: string; glossaryEnZh: string; client: NmtGlossaryClient};
+  onNmtMetric?: (metric: NmtGlossaryMetric) => void;
   translationLlm?: {location: string; glossaryZhEn: string; glossaryEnZh: string};
   onTranslationMetric?: (metric: TranslationLlmMetric) => void;
 }
 
 export function createTranslator(config: TranslationConfiguration): Translator {
+  if (config.engine === "nmt-glossary") {
+    if (!config.nmtGlossary) throw new Error("Missing NMT glossary configuration.");
+    return new NmtGlossaryTranslator({projectId: config.projectId, ...config.nmtGlossary,
+      protectedNames: config.protectedNames.split(",").map(name => name.trim()).filter(Boolean), onMetric: config.onNmtMetric}, config.nmtGlossary.client);
+  }
   if (config.engine === "google") return new GoogleCloudTranslator(config.projectId);
   if (config.engine === "translation-llm") {
     if (!config.translationLlm) throw new Error("Missing Translation LLM configuration.");

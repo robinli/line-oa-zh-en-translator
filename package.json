@@ -9,8 +9,11 @@
     "check": "npm --prefix functions run check",
     "verify": "npm --prefix functions run verify",
     "emulators": "firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions:lineWebhook",
-    "evaluate:tllm": "npm --prefix functions run evaluate:tllm"
+    "deploy": "node functions/scripts/nmt-admin.mjs deploy",
+    "evaluate:tllm": "npm --prefix functions run evaluate:tllm",
+    "nmt:identity": "node functions/scripts/nmt-admin.mjs identity",
+    "nmt:provision": "node functions/scripts/nmt-admin.mjs provision",
+    "nmt:dry-run": "node functions/scripts/evaluate-nmt.mjs --dry-run"
   },
   "engines": {
     "node": "22"

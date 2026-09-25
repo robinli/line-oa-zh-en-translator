@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 // Creates only versioned synthetic terminology resources; never changes LINE or runtime settings.
 import {mkdir, writeFile} from "node:fs/promises";
 const project = process.env.GOOGLE_CLOUD_PROJECT;

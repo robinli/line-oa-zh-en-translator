@@ -1,3 +1,4 @@
+import "./nmt-legacy-guard.mjs";
 import {readFile, writeFile, mkdir} from "node:fs/promises";
 import {VietnameseNmtTranslator} from "../lib/vietnamese-nmt-translator.js";
 
