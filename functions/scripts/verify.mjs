@@ -1,7 +1,7 @@
 import {spawnSync} from "node:child_process";
 
 const npmCli = process.env.npm_execpath;
-const checks = ["check", "test", "build", "test:nmt-tools"];
+const checks = ["check", "test", "build", "test:nmt-tools", "test:quality-tools"];
 
 if (!npmCli) {
   console.error("Unable to locate the npm CLI from npm_execpath.");

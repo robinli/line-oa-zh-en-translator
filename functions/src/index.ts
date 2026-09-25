@@ -1,3 +1,4 @@
+import {FirestoreTranslationQualityStore} from "./translation-quality-store.js";
 import {FirestoreTranslationFailureStore} from "./translation-failure-store.js";
 import {ControlledNmtClient, AuthenticatedNmtTransport} from "./nmt-controlled-client.js";
 import {FirestoreNmtBudget} from "./nmt-budget.js";
@@ -106,6 +107,10 @@ export const lineWebhook = onRequest(
         replier: new LineMessagingApiReplier(lineChannelAccessToken.value()),
         settingsStore: conversationSettingsStore,
         failureStore: translationFailureStore,
+        qualityStore: projectID.value() === NMT_TEST_PROJECT ? new FirestoreTranslationQualityStore(getFirestore(firebaseApp), {projectId: projectID.value(), revision: process.env.K_REVISION}) : undefined,
+        qualityMetadata: (mode, source) => ({engine: mode === "zh-vi" ? "general/nmt" : "nmt-glossary",
+          glossary: mode === "zh-vi" || !source ? null : source === "zh-TW" ? NMT_GLOSSARIES.zhEn : NMT_GLOSSARIES.enZh,
+          revision: process.env.K_REVISION ?? null}),
         ownerUserId: lineOwnerUserId.value(),
         logger,
         maxMessageLength: maxMessageLength.value(),

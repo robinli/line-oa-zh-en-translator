@@ -24,7 +24,10 @@
     "evaluate:nmt": "node scripts/evaluate-nmt.mjs",
     "replay:nmt": "node scripts/replay-nmt.mjs",
     "test:nmt-tracking-ledger": "node scripts/test-nmt-tracking-emulator.mjs",
-    "test:failure-store": "node scripts/test-translation-failure-store.mjs"
+    "test:failure-store": "node scripts/test-translation-failure-store.mjs",
+    "export:quality": "node scripts/export-translation-quality.mjs",
+    "test:quality-tools": "node --test scripts/test-quality-tools.mjs",
+    "test:quality-store": "node scripts/test-translation-quality-store.mjs"
   },
   "dependencies": {
     "@google-cloud/speech": "^8.0.1",

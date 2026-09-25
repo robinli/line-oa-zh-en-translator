@@ -1,3 +1,7 @@
+import {createHash} from "node:crypto";
+import {captureQualityOriginal, qualityOperation, traceQualityDependencies, type QualityTrace} from "./translation-quality.js";
+import {processTranslationReport, REPORT_COMMAND} from "./translation-report.js";
+import type {TranslationQualityStore} from "./translation-quality-store.js";
 import {buildReplyMessages} from "./line-messages.js";
 import {ContentLimitError, failureReason, UNCHANGED_TRANSLATION_REPLY, TRANSLATION_FAILURE_REPLY, type FailureStage} from "./translation-failures.js";
 import type {TranslationFailureStore, TranslationFailureRecord} from "./translation-failure-store.js";
@@ -81,6 +85,9 @@ export interface WebhookLogger {
 }
 
 export interface WebhookDependencies {
+  qualityStore?: TranslationQualityStore;
+  qualityTrace?: QualityTrace;
+  qualityMetadata?: (mode: TranslationMode, sourceLanguageCode?: string) => {engine: string; glossary: string | null; revision: string | null};
   channelSecret: string;
   translator?: Translator;
   getTranslationProgram?: (mode: TranslationMode) => TranslationProgram;
@@ -149,13 +156,21 @@ export async function processLineWebhook(
   let processed = 0;
   let failed = 0;
 
+  const qualityConfig = dependencies.qualityStore ? await qualityOperation(() => dependencies.qualityStore!.getConfig(), dependencies) : null;
   for (const event of webhookBody.events) {
+    const original = qualityConfig ? captureQualityOriginal(event, qualityConfig, new Date(), groupId => dependencies.logger.error("Translation quality event has no stable ID.", {reason: "quality_event_id_missing", groupKey: createHash("sha256").update(groupId).digest("hex")})) : null;
+    const trace: QualityTrace = {outcome: "ignored", deliveryStatus: "not_attempted", completedAt: new Date()};
+    const eventDependencies = original ? traceQualityDependencies(dependencies, trace) : dependencies;
+    const failedBefore = failed;
+    if (original) dependencies.logger.info("Translation quality event received.", {reason: "quality_received", groupKey: createHash("sha256").update(original.groupId).digest("hex"), webhookEventId: original.webhookEventId, messageId: original.messageId});
+    if (original) await qualityOperation(() => eventDependencies.qualityStore!.saveOriginal(original), eventDependencies, original.webhookEventId ?? undefined);
+    try {
     if (
       isUserTextMessageEvent(event) &&
       event.message.text.trim() === MY_LINE_USER_ID_COMMAND
     ) {
       try {
-        await dependencies.replier.replyText(
+        await eventDependencies.replier.replyText(
           event.replyToken,
           `你的 LINE userId：\n${event.source.userId}`,
         );
@@ -166,16 +181,30 @@ export async function processLineWebhook(
           "Failed to reply with a LINE user ID.",
           event.webhookEventId,
           error,
-          dependencies,
+          eventDependencies,
         );
       }
       continue;
     }
 
+    if (isUserTextMessageEvent(event) && eventDependencies.qualityStore && eventDependencies.ownerUserId && event.source.userId === eventDependencies.ownerUserId) {
+      let reply: string | null | undefined;
+      let knownActiveReport = false;
+      const explicitReportControl = [REPORT_COMMAND, "/返回", "/取消", "確認", "下一頁", "下一段"].includes(event.message.text.trim());
+      if (qualityConfig) reply = await qualityOperation(() => processTranslationReport(event, eventDependencies.ownerUserId, eventDependencies.qualityStore!, qualityConfig, new Date(), () => {knownActiveReport = true;}), eventDependencies, event.webhookEventId);
+      if (reply === undefined && qualityConfig && (explicitReportControl || knownActiveReport)) reply = "目前無法確認回報操作結果，請稍後重試；重複確認不會重複建案。";
+      if (!qualityConfig && event.message.text.trim() === REPORT_COMMAND) reply = "翻譯錯誤回報目前無法使用，請稍後再試。";
+      if (reply) {
+        try {await eventDependencies.replier.replyText(event.replyToken, reply); processed++;}
+        catch (error) {failed++; logEventFailure("Failed to reply to translation report.", event.webhookEventId, error, eventDependencies);}
+        continue;
+      }
+    }
+
     if (isGroupJoinEvent(event)) {
       try {
-        const settings = await dependencies.settingsStore.getSettings(event.source.groupId);
-        await dependencies.replier.replyText(
+        const settings = await eventDependencies.settingsStore.getSettings(event.source.groupId);
+        await eventDependencies.replier.replyText(
           event.replyToken,
           (settings.textTranslationEnabled || settings.audioTranscriptionEnabled) ?
             formatStatus(settings) : JOIN_MESSAGE,
@@ -187,7 +216,7 @@ export async function processLineWebhook(
           "Failed to initialize joined LINE group.",
           event.webhookEventId,
           error,
-          dependencies,
+          eventDependencies,
         );
       }
       continue;
@@ -201,7 +230,7 @@ export async function processLineWebhook(
           maxMessageLength,
           maxAudioDurationMs,
           maxAudioBytes,
-          dependencies,
+          eventDependencies,
         );
         if (outcome === "processed") processed += 1;
         else if (outcome === "failed") failed += 1;
@@ -212,19 +241,20 @@ export async function processLineWebhook(
           "Failed to process a LINE chat audio message.",
           event.webhookEventId,
           error,
-          dependencies,
+          eventDependencies,
         );
       }
       continue;
     }
 
     if (!isGroupTextMessageEvent(event)) {
+      if (original?.messageType === "audio") trace.reason = "unsupported_audio_provider";
       ignored += 1;
       continue;
     }
 
     try {
-      const outcome = await processGroupTextMessage(event, maxMessageLength, dependencies);
+      const outcome = await processGroupTextMessage(event, maxMessageLength, eventDependencies);
       if (outcome === "processed") processed += 1;
       else if (outcome === "failed") failed += 1;
       else ignored += 1;
@@ -234,11 +264,19 @@ export async function processLineWebhook(
         "Failed to process a LINE chat message.",
         event.webhookEventId,
         error,
-        dependencies,
+        eventDependencies,
       );
     }
+    } finally {
+      if (original) {
+        if (failed > failedBefore && trace.deliveryStatus !== "failed") {trace.outcome = "failed"; trace.reason ??= "event_processing_error";}
+        trace.completedAt = new Date();
+        if (trace.translationMode && dependencies.qualityMetadata) Object.assign(trace, dependencies.qualityMetadata(trace.translationMode as TranslationMode, trace.sourceLanguageCode ?? undefined));
+        const saved = await qualityOperation(async () => {await dependencies.qualityStore!.complete(original, trace); return true;}, dependencies, original.webhookEventId ?? undefined);
+        if (saved) dependencies.logger.info("Translation quality capture completed.", {reason: "quality_capture", webhookEventId: original.webhookEventId, outcome: trace.outcome, deliveryStatus: trace.deliveryStatus});
+      }
+    }
   }
-
   dependencies.logger.info("LINE webhook processed.", {
     eventCount: webhookBody.events.length,
     processed,
@@ -259,7 +297,10 @@ async function processGroupAudioMessage(
   dependencies: WebhookDependencies,
 ): Promise<MessageOutcome> {
   const settings = await dependencies.settingsStore.getSettings(event.source.groupId);
-  if (!settings.audioTranscriptionEnabled) return replySkippedMessage(event.replyToken, dependencies);
+  if (!settings.audioTranscriptionEnabled) {
+    if (dependencies.qualityTrace) dependencies.qualityTrace.reason = "audio_disabled";
+    return replySkippedMessage(event.replyToken, dependencies);
+  }
   let sourceText: string | null = null;
   let languagePair: LanguagePair | undefined;
   let replyText: string;
@@ -273,11 +314,13 @@ async function processGroupAudioMessage(
     stage = "transcription";
     const transcription = await dependencies.transcriber.transcribe(audioContent, getSpeechLanguageCodes(settings.translationMode));
     sourceText = transcription.text;
+    if (dependencies.qualityTrace) dependencies.qualityTrace.sourceText = sourceText;
     if (!sourceText.trim()) throw new Error("Empty transcript");
     languagePair = settings.textTranslationEnabled ? getTextLanguagePair(sourceText, settings.translationMode) : undefined;
     stage = "input";
     if (sourceText.length > maxMessageLength) throw new ContentLimitError("transcript_too_long");
     replyText = sourceText;
+    let acceptedTranslation: string | null = null;
     if (languagePair) {
       stage = "translation_setup";
       const {translator} = resolveTranslationProgram(dependencies, settings.translationMode);
@@ -285,9 +328,11 @@ async function processGroupAudioMessage(
       const translatedText = await translator.translate(sourceText, languagePair.sourceLanguageCode, languagePair.targetLanguageCode);
       if (!translatedText.trim()) throw new Error("Empty translation");
       replyText = sourceText + "\n\n" + translatedText;
+      acceptedTranslation = translatedText;
     }
     stage = "reply_validation";
     buildReplyMessages(replyText);
+    if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair, {translatedText: acceptedTranslation, outcome: acceptedTranslation === null ? "skipped" : "translated"});
   } catch (error: unknown) {
     return reportTranslationFailure(event, settings.translationMode, sourceText, languagePair, stage, error, dependencies);
   }
@@ -382,6 +427,7 @@ async function processGroupTextMessage(
   }
 
   let translatedText: string;
+  let acceptedTranslation: string;
   let translatedMentions: UserMention[] = [];
   let stage: FailureStage = "translation_setup";
   try {
@@ -407,12 +453,14 @@ async function processGroupTextMessage(
       translatedText = await translator.translate(...translationArgs);
     }
     if (!translatedText.trim()) throw new Error("Empty translation");
+    acceptedTranslation = translatedText;
     if (normalizeTranslationText(text) === normalizeTranslationText(translatedText)) {
       translatedText = UNCHANGED_TRANSLATION_REPLY;
       translatedMentions = [];
     }
     stage = "reply_validation";
     buildReplyMessages(translatedText, translatedMentions.slice(0, 20));
+    if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair, {translatedText: acceptedTranslation, outcome: "translated"});
   } catch (error: unknown) {
     return reportTranslationFailure(event, settings.translationMode, text, languagePair, stage, error, dependencies);
   }
@@ -441,6 +489,7 @@ async function reportTranslationFailure(
   dependencies: WebhookDependencies,
 ): Promise<"failed"> {
   const reason = failureReason(error, stage);
+  if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair, {outcome: "failed", reason, translatedText: null});
   const record: TranslationFailureRecord = {
     groupId: event.source.groupId, webhookEventId: event.webhookEventId,
     messageId: event.message.id, messageType: event.message.type,

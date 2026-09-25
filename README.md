@@ -1,6 +1,6 @@
 # LINE 文字翻譯與語音轉文字機器人
 
-> **最新 dev（2026-09-25 已驗證部署）：** `line-auto-translate-bot-dev`／測試 OA @249opyjp，revision `linewebhook-00004-teb`（ACTIVE、100% 流量）；相同文字譯文及正常略過回覆 👆，翻譯錯誤／限制阻擋回覆 🚧 並保存失敗內容。1,471 項應用測試、45 項工具測試、獨立驗證及五類部署後合成檢查通過；手機端顯示待人工驗收。詳見 [dev 回應與失敗記錄](docs/LINEOAdev回應與失敗記錄.md)。
+> **最新 dev（2026-09-25 已驗證部署）：** `line-auto-translate-bot-dev`／測試 OA @249opyjp，revision `linewebhook-00005-win`（ACTIVE、100% 流量）；已啟用四個指定群組的交談／譯文採集，排除 T1，保存原始發言者 userId；管理者一對一可用 `/翻譯錯誤` 搜尋或手動新增案例。1,527 項應用、45 項既有工具、4 項匯出工具、Firestore emulator 及獨立驗證通過，手機操作待人工驗收；開始時間 2026-09-25 19:51:20（台北）。詳見 [DEV 品質紀錄與回報](docs/DEV翻譯品質紀錄與錯誤案例回報.md)。
 
 > **2026-09-25 分支整合：** NMT dev 程式已整合至 `codex-local`，來源提交 `85a3e38`；主目錄 `functions/` 現在包含 dev 的 NMT＋術語表入口與隔離部署防護，原有 LLM 候選亦保留。此次僅整合本機 Git，沒有部署、付費翻譯或 LINE 訊息；正式區仍以 9/21 回復版本為準。詳見 [分支整合紀錄](docs/NMT分支整合紀錄.md)。
 
@@ -56,7 +56,8 @@ firebase.cmd emulators:start --only functions
 
 - [分支整合紀錄](docs/NMT分支整合紀錄.md)：工作區、分支與設定位置。
 - [隔離測試環境維運](docs/NMT隔離測試環境維運.md)：dev 登入、防護與部署流程。
-- [dev 回應與失敗記錄](docs/LINEOAdev回應與失敗記錄.md)：最新部署與驗證證據。
+- [DEV 品質紀錄與回報](docs/DEV翻譯品質紀錄與錯誤案例回報.md)：四群採集、管理者私訊與最新部署證據。
+- [dev 回應與失敗記錄](docs/LINEOAdev回應與失敗記錄.md)：既有符號回覆與失敗資料格式。
 - [正式回復紀錄](docs/正式區回復0921版本與NMT.md)：正式來源與目前行為；不可將本機 dev 候選直接視為正式部署來源。
 
 ## dev 翻譯指令
