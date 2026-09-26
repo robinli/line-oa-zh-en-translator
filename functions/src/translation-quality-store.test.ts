@@ -21,7 +21,7 @@ class MemoryFirestore {
       get: async () => {
         const docs = [...this.documents.keys()].filter(key => key.startsWith(path + "/") && !key.slice(path.length + 1).includes("/")).map(key => this.snapshot(key))
           .filter(doc => filters.every(([field, op, value]) => op === ">=" ? doc.get(field) >= value : doc.get(field) <= value))
-          .sort((a, b) => b.get("eventTime").getTime() - a.get("eventTime").getTime() || b.id.localeCompare(a.id))
+          .sort((a, b) => (b.get("eventTime")?.getTime() ?? 0) - (a.get("eventTime")?.getTime() ?? 0) || b.id.localeCompare(a.id))
           .filter(doc => !after || doc.get("eventTime") < after[0] || (+doc.get("eventTime") === +after[0] && doc.id < after[1])).slice(0, limit);
         return {docs, size: docs.length};
       }}; return query;
@@ -48,9 +48,56 @@ function setup() {const db = new MemoryFirestore(); db.documents.set(QUALITY_CON
   const docs = (collection: string) => [...db.documents].filter(([path]) => path.startsWith(collection + "/") && !path.slice(collection.length + 1).includes("/")).map(([, value]) => value);
   return {db, store, report, docs, advance: (ms: number) => {clock = new Date(clock.getTime() + ms);}};
 }
-it("validates four unique configured groups, start timestamp and excludes T1", () => {
+it("recording defaults on, persists per group and keeps translation settings intact", async () => {
+  const t = setup(); const id = groups[0]!.id;
+  t.db.documents.set(`lineTranslationGroups/${id}`, {translationMode: "zh-vi", textTranslationEnabled: false, audioTranscriptionEnabled: true});
+  expect(await t.store.getRecordingEnabled(id)).toBe(true);
+  expect(await t.store.setRecordingEnabled(id, false, "owner", "off", +now)).toEqual({enabled: false, applied: true});
+  expect(await t.store.getRecordingEnabled(id)).toBe(false);
+  expect(await t.store.getRecordingEnabled(groups[1]!.id)).toBe(true);
+  expect(t.db.documents.get(`lineTranslationGroups/${id}`)).toMatchObject({translationMode: "zh-vi", textTranslationEnabled: false, audioTranscriptionEnabled: true, recordingEnabled: false});
+  await t.store.setRecordingEnabled(id, true, "owner", "on", +now + 1);
+  expect(await t.store.getRecordingEnabled(id)).toBe(true);
+});
+it("duplicate, stale and equal-time recording commands never undo the newer setting", async () => {
+  const t = setup(), id = groups[0]!.id;
+  await t.store.setRecordingEnabled(id, true, "owner", "old-on", +now);
+  await Promise.all(Array.from({length: 6}, () => t.store.setRecordingEnabled(id, false, "owner", "new-off", +now + 2)));
+  for (const [event, time] of [["old-on", +now], ["stale", +now + 1], ["same-time", +now + 2]] as const) {
+    expect(await t.store.setRecordingEnabled(id, true, "owner", event, time)).toEqual({enabled: false, applied: false});
+  }
+  expect(await t.store.getRecordingEnabled(id)).toBe(false);
+  expect([...t.db.documents.keys()].filter(k => k.includes("recordingCommands/"))).toHaveLength(4);
+});
+it("failed setting transaction does not commit a flag or a receipt", async () => {
+  const t = setup(); t.db.failCommit = true;
+  await expect(t.store.setRecordingEnabled(groups[0]!.id, false, "owner", "off", +now)).rejects.toThrow();
+  expect(await t.store.getRecordingEnabled(groups[0]!.id)).toBe(true);
+  expect(t.db.documents.size).toBe(1);
+});
+it("disabled groups remain discoverable and their historical records searchable", async () => {
+  const t = setup(), id = "C" + "f".repeat(32);
+  await t.store.saveOriginal({...original, groupId: id, groupName: "T1-測試 Auto Translate"});
+  await t.store.setRecordingEnabled(id, false, "owner", "off", +now);
+  expect((await t.store.getConfig())?.groups).toContainEqual({id, name: "T1-測試 Auto Translate"});
+  const result = await t.store.search({groupIds: [id], start: new Date(0), end: now, keyword: "原文"});
+  expect(result.messages).toHaveLength(1);
+});
+it("group selection pages beyond nine and stays stable when groups change", async () => {
+  const t = setup(); const many = Array.from({length: 24}, (_, i) => ({id: "C" + (i + 1).toString(16).padStart(32, "0"), name: `測試群 ${i + 1}`}));
+  let sequence = 0;
+  const call = (text: string, listed = many) => processTranslationReport({type: "message", source: {type: "user", userId: "owner"}, replyToken: "token", webhookEventId: `page-${++sequence}`, message: {type: "text", text}}, "owner", t.store, {...config, groups: listed}, now);
+  await call("/翻譯錯誤"); expect(await call("2")).toContain("10 測試群 10");
+  expect(await call("下一頁", many.slice().reverse())).toContain("11 測試群 11");
+  expect(await call("上一頁")).toContain("1 測試群 1");
+  await call("12", many.slice().reverse());
+  expect(t.docs(QUALITY_SESSIONS_COLLECTION)[0]!.draft.groupId).toBe(many[11]!.id);
+});
+it("validates unique seed groups and start timestamp while accepting any group count and T1", () => {
   expect(parseQualityConfig(config)).toEqual(config);
-  for (const invalid of [{...config, enabled: false}, {...config, groups: groups.slice(1)}, {...config, groups: [groups[0], groups[0], groups[2], groups[3]]}, {...config, startedAt: "date"}, {...config, groups: [{...groups[0], name: "T1"}, ...groups.slice(1)]}]) expect(parseQualityConfig(invalid)).toBeNull();
+  expect(parseQualityConfig({...config, groups: []})).not.toBeNull();
+  expect(parseQualityConfig({...config, groups: [{...groups[0], name: "T1"}]})).not.toBeNull();
+  for (const invalid of [{...config, enabled: false}, {...config, groups: [groups[0], groups[0], groups[2], groups[3]]}, {...config, startedAt: "date"}]) expect(parseQualityConfig(invalid)).toBeNull();
   expect(qualityDate({toDate: () => now})).toEqual(now); expect(normalizeQualityKeyword(" ＰＲＩＣＥ\n  Check ")).toBe("price check");
 });
 it("gates all storage on the dev project", async () => {

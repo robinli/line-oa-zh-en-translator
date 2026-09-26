@@ -10,7 +10,7 @@ const config: QualityConfig = {enabled: true, groups, startedAt: new Date("2026-
 const event = (text = "請確認報價", id = "event1") => ({type: "message", webhookEventId: id, timestamp: 1790300000000, replyToken: "secret-token", source: {type: "group", groupId: groups[0]!.id, userId: "raw-sender"}, message: {id: `message-${id}`, type: "text", text}});
 function setup() {
   const originals: QualityOriginal[] = []; const completions: QualityCompletion[] = [];
-  const store: TranslationQualityStore = {getConfig: vi.fn(async () => config), saveOriginal: vi.fn(async record => {originals.push(structuredClone(record));}), complete: vi.fn(async (_, completion) => {completions.push(structuredClone(completion));}), search: vi.fn(), transitionReport: vi.fn(async () => null)};
+  const store: TranslationQualityStore = {getConfig: vi.fn(async () => config), getRecordingEnabled: vi.fn(async () => true), setRecordingEnabled: vi.fn(), saveOriginal: vi.fn(async record => {originals.push(structuredClone(record));}), complete: vi.fn(async (_, completion) => {completions.push(structuredClone(completion));}), search: vi.fn(), transitionReport: vi.fn(async () => null)};
   const dependencies: WebhookDependencies = {channelSecret: "secret", ownerUserId: "owner", qualityStore: store,
     qualityMetadata: () => ({engine: "nmt-glossary", glossary: "glossary-v1", revision: "revision1"}),
     translator: {translate: vi.fn(async () => "Please confirm the price.")}, transcriber: {transcribe: vi.fn(async () => ({text: "請確認報價"}))},
@@ -20,6 +20,47 @@ function setup() {
   const call = (events: unknown[]) => {const rawBody = Buffer.from(JSON.stringify({events})); return processLineWebhook({method: "POST", rawBody, signature: createHmac("sha256", "secret").update(rawBody).digest("base64")}, dependencies);};
   return {dependencies, store, originals, completions, call};
 }
+it("new groups including T1 are recorded by default, while rooms and DMs are excluded", async () => {
+  const test = setup();
+  const newGroup = {...event(), source: {type: "group", groupId: "C" + "a".repeat(32)}};
+  vi.mocked(test.store.getConfig).mockResolvedValue({...config, groups: [...groups, {id: newGroup.source.groupId, name: "T1-測試 Auto Translate"}]});
+  await test.call([newGroup]);
+  expect(test.originals[0]).toMatchObject({groupId: newGroup.source.groupId, groupName: "T1-測試 Auto Translate"});
+  expect(captureQualityOriginal({...newGroup, source: {type: "group", groupId: "C" + "b".repeat(32)}}, config)?.groupName).toMatch(/^群組 /u);
+});
+it("recording controls affect subsequent same-batch events only in their own group without changing translation", async () => {
+  const test = setup(); const flags = new Map<string, boolean>();
+  vi.mocked(test.store.getRecordingEnabled).mockImplementation(async id => flags.get(id) !== false);
+  vi.mocked(test.store.setRecordingEnabled).mockImplementation(async (id, enabled) => {flags.set(id, enabled); return {enabled, applied: true};});
+  const control = (text: string, id: string) => ({...event(text, id), source: {type: "group", groupId: groups[0]!.id, userId: "owner"}});
+  await test.call([event("請確認", "before"), control("/關閉記錄", "off"), event("請確認", "after-off"),
+    {...event("請確認", "other"), source: {type: "group", groupId: groups[1]!.id}}, control("/開啟記錄", "on"), event("請確認", "after-on")]);
+  expect(test.originals.map(r => r.webhookEventId)).toEqual(["before", "other", "after-on"]);
+  expect(test.dependencies.translator!.translate).toHaveBeenCalledTimes(4);
+  expect(test.dependencies.settingsStore.setModeAndEnabled).not.toHaveBeenCalled();
+  expect(test.dependencies.settingsStore.setTextTranslationEnabled).not.toHaveBeenCalled();
+});
+it("recording settings read failure skips capture but still translates", async () => {
+  const test = setup(); vi.mocked(test.store.getRecordingEnabled).mockRejectedValue(new Error("private"));
+  await test.call([event()]); expect(test.originals).toHaveLength(0); expect(test.completions).toHaveLength(0);
+  expect(test.dependencies.translator!.translate).toHaveBeenCalledOnce();
+});
+it("only designated owner may change recording and failed writes do not claim success", async () => {
+  const test = setup(); await test.call([event("/關閉記錄")]); expect(test.store.setRecordingEnabled).not.toHaveBeenCalled();
+  expect(test.dependencies.replier.replyText).toHaveBeenLastCalledWith("secret-token", expect.stringContaining("沒有權限"));
+  vi.mocked(test.store.setRecordingEnabled).mockRejectedValue(new Error("private"));
+  await test.call([{...event("/關閉記錄"), source: {type: "group", groupId: groups[0]!.id, userId: "owner"}}]);
+  expect(test.dependencies.replier.replyText).toHaveBeenLastCalledWith("secret-token", expect.stringContaining("無法確認"));
+  expect(test.originals).toHaveLength(0); expect(test.dependencies.translator!.translate).not.toHaveBeenCalled();
+});
+it.each([true, false])("translation settings show recording=%s while retired status remains ignored", async enabled => {
+  const test = setup(); vi.mocked(test.dependencies.settingsStore.getSettings).mockResolvedValue({textTranslationEnabled: false, audioTranscriptionEnabled: false, translationMode: "zh-en", recordingEnabled: enabled});
+  await test.call([event("/翻譯設定")]);
+  expect(test.dependencies.replier.replyText).toHaveBeenLastCalledWith("secret-token", expect.stringContaining(`交談記錄：${enabled ? "已開啟" : "已關閉"}`));
+  expect(test.dependencies.replier.replyText).toHaveBeenLastCalledWith("secret-token", expect.stringContaining("/關閉記錄"));
+  vi.mocked(test.dependencies.replier.replyText).mockClear(); await test.call([event("/翻譯狀態")]);
+  expect(test.dependencies.replier.replyText).not.toHaveBeenCalled();
+});
 describe("quality capture integration", () => {
   it("saves original before translation, accepted output and actual reply separately", async () => {
     const test = setup(); vi.mocked(test.dependencies.translator!.translate).mockImplementation(async () => {expect(test.originals).toHaveLength(1); return "Please confirm the price.";});

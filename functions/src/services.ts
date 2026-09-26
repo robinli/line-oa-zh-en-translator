@@ -34,6 +34,7 @@ export interface LineReplier {
 }
 
 export interface ConversationSettings {
+  recordingEnabled?: boolean;
   textTranslationEnabled: boolean;
   audioTranscriptionEnabled: boolean;
   translationMode: TranslationMode;
@@ -72,6 +73,7 @@ export class FirestoreConversationSettingsStore implements ConversationSettingsS
     const snapshot = await this.conversationDocument(conversationId).get();
     const storedMode = snapshot.get("translationMode");
     return {
+      recordingEnabled: snapshot.get("recordingEnabled") !== false,
       textTranslationEnabled: readFeatureFlag(snapshot, "textTranslationEnabled"),
       audioTranscriptionEnabled: readFeatureFlag(snapshot, "audioTranscriptionEnabled"),
       translationMode: storedMode === "zh-to-en" || storedMode === "en-to-zh" ||

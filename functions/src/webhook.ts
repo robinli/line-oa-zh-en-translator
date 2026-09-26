@@ -39,6 +39,9 @@ export const DISABLE_TEXT_COMMAND = "/停用文字翻譯";
 export const ENABLE_AUDIO_COMMAND = "/啟用語音轉文字";
 export const DISABLE_AUDIO_COMMAND = "/停用語音轉文字";
 export const TRANSLATION_SETTINGS_COMMAND = "/翻譯設定";
+export const ENABLE_RECORDING_COMMAND = "/開啟記錄";
+export const DISABLE_RECORDING_COMMAND = "/關閉記錄";
+const RECORDING_COMMANDS = [ENABLE_RECORDING_COMMAND, DISABLE_RECORDING_COMMAND];
 export const CHINESE_TO_ENGLISH_COMMAND = "/中翻英";
 export const ENGLISH_TO_CHINESE_COMMAND = "/英翻中";
 export const CHINESE_ENGLISH_COMMAND = "/中英翻譯";
@@ -158,7 +161,10 @@ export async function processLineWebhook(
 
   const qualityConfig = dependencies.qualityStore ? await qualityOperation(() => dependencies.qualityStore!.getConfig(), dependencies) : null;
   for (const event of webhookBody.events) {
-    const original = qualityConfig ? captureQualityOriginal(event, qualityConfig, new Date(), groupId => dependencies.logger.error("Translation quality event has no stable ID.", {reason: "quality_event_id_missing", groupKey: createHash("sha256").update(groupId).digest("hex")})) : null;
+    const recordingCommand = isGroupTextMessageEvent(event) && RECORDING_COMMANDS.includes(event.message.text.trim());
+    const candidate = qualityConfig && !recordingCommand ? captureQualityOriginal(event, qualityConfig, new Date(), groupId => dependencies.logger.error("Translation quality event has no stable ID.", {reason: "quality_event_id_missing", groupKey: createHash("sha256").update(groupId).digest("hex")})) : null;
+    const recordingEnabled = candidate ? await qualityOperation(() => dependencies.qualityStore!.getRecordingEnabled(candidate.groupId), dependencies, candidate.webhookEventId ?? undefined) : false;
+    const original = recordingEnabled === true ? candidate : null;
     const trace: QualityTrace = {outcome: "ignored", deliveryStatus: "not_attempted", completedAt: new Date()};
     const eventDependencies = original ? traceQualityDependencies(dependencies, trace) : dependencies;
     const failedBefore = failed;
@@ -207,7 +213,7 @@ export async function processLineWebhook(
         await eventDependencies.replier.replyText(
           event.replyToken,
           (settings.textTranslationEnabled || settings.audioTranscriptionEnabled) ?
-            formatStatus(settings) : JOIN_MESSAGE,
+            formatStatus(settings, Boolean(eventDependencies.qualityStore)) : JOIN_MESSAGE,
         );
         processed += 1;
       } catch (error: unknown) {
@@ -350,6 +356,21 @@ async function processGroupTextMessage(
   const command = text.trim();
   const conversationId = event.source.groupId;
 
+  if (RECORDING_COMMANDS.includes(command)) {
+    if (!dependencies.qualityStore) return "ignored";
+    if (!dependencies.ownerUserId || !canChangeSettings(event, dependencies.ownerUserId)) {
+      await dependencies.replier.replyText(event.replyToken, UNAUTHORIZED_MESSAGE);
+      return "processed";
+    }
+    const result = await qualityOperation(() => dependencies.qualityStore!.setRecordingEnabled(
+      conversationId, command === ENABLE_RECORDING_COMMAND, event.source.userId!,
+      event.webhookEventId ?? (event.message.id ? `message:${event.message.id}` : ""), event.timestamp!), dependencies, event.webhookEventId);
+    await dependencies.replier.replyText(event.replyToken, result ?
+      `${result.applied ? "已更新本群設定。" : "此指令已處理或已過期，未變更設定。"}\n交談記錄：${result.enabled ? "已開啟" : "已關閉"}` :
+      "目前無法確認記錄設定是否更新，請用 /翻譯設定 確認後再試。");
+    return "processed";
+  }
+
   if (RETIRED_COMMANDS.has(command) || command === MY_LINE_USER_ID_COMMAND) {
     return "ignored";
   }
@@ -402,7 +423,7 @@ async function processGroupTextMessage(
 
   if (command === TRANSLATION_SETTINGS_COMMAND) {
     const settings = await dependencies.settingsStore.getSettings(conversationId);
-    const response = `${formatStatus(settings)}\n\n可用指令：\n${MAIN_COMMANDS}`;
+    const response = `${formatStatus(settings, Boolean(dependencies.qualityStore))}\n\n可用指令：\n${MAIN_COMMANDS}${dependencies.qualityStore ? "\n" + RECORDING_COMMANDS.join("\n") : ""}`;
     await dependencies.replier.replyText(event.replyToken, response);
     return "processed";
   }
@@ -563,10 +584,11 @@ function isSettingsChangeCommand(command: string): boolean {
       DISABLE_TEXT_COMMAND, ENABLE_AUDIO_COMMAND, DISABLE_AUDIO_COMMAND].includes(command);
 }
 
-function formatStatus(settings: ConversationSettings): string {
+function formatStatus(settings: ConversationSettings, recordingAvailable = false): string {
   return `翻譯模式：${formatModeLabel(settings.translationMode)}\n` +
     `文字翻譯：${settings.textTranslationEnabled ? "已啟用" : "未啟用"}\n` +
-    `語音轉文字：${settings.audioTranscriptionEnabled ? "已啟用" : "未啟用"}`;
+    `語音轉文字：${settings.audioTranscriptionEnabled ? "已啟用" : "未啟用"}` +
+    (recordingAvailable ? `\n交談記錄：${settings.recordingEnabled !== false ? "已開啟" : "已關閉"}` : "");
 }
 
 function formatModeEnabledMessage(translationMode: TranslationMode): string {

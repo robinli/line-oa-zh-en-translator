@@ -23,6 +23,7 @@ describe("FirestoreConversationSettingsStore", () => {
   it.each(["zh-to-en", "en-to-zh", "zh-en", "zh-vi"] as const)("reads and writes %s", async (mode) => {
     const {store, set, doc} = setup({enabled: true, translationMode: mode});
     await expect(store.getSettings("group-id")).resolves.toEqual({
+      recordingEnabled: true,
       textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: mode,
     });
     await store.setModeAndEnabled("group-id", mode, "owner-id");
@@ -44,6 +45,7 @@ describe("FirestoreConversationSettingsStore", () => {
   ] as const)("reads legacy and explicit flags %j", async (values, text, audio) => {
     const {store} = setup({...values});
     await expect(store.getSettings("group-id")).resolves.toEqual({
+      recordingEnabled: true,
       textTranslationEnabled: text, audioTranscriptionEnabled: audio, translationMode: "zh-en",
     });
   });
@@ -57,6 +59,7 @@ describe("FirestoreConversationSettingsStore", () => {
     const {store, set} = setup({enabled: true, translationMode: "zh-vi"});
     await store.setTextTranslationEnabled("group-id", false, "owner-id");
     await expect(store.getSettings("group-id")).resolves.toEqual({
+      recordingEnabled: true,
       textTranslationEnabled: false, audioTranscriptionEnabled: true, translationMode: "zh-vi",
     });
     expect(set).toHaveBeenLastCalledWith({
@@ -64,6 +67,7 @@ describe("FirestoreConversationSettingsStore", () => {
     }, {merge: true});
     await store.setModeAndEnabled("group-id", "zh-to-en", "owner-id");
     await expect(store.getSettings("group-id")).resolves.toEqual({
+      recordingEnabled: true,
       textTranslationEnabled: true, audioTranscriptionEnabled: true, translationMode: "zh-to-en",
     });
   });
@@ -76,6 +80,7 @@ describe("FirestoreConversationSettingsStore", () => {
     }, {merge: true});
     await store.setModeAndEnabled("group-id", "en-to-zh", "owner-id");
     await expect(store.getSettings("group-id")).resolves.toEqual({
+      recordingEnabled: true,
       textTranslationEnabled: true, audioTranscriptionEnabled: false, translationMode: "en-to-zh",
     });
   });
@@ -84,9 +89,16 @@ describe("FirestoreConversationSettingsStore", () => {
     const {store, doc} = setup();
     await store.setModeAndEnabled("user:private-id", "zh-to-en", "private-id");
     await expect(store.getSettings("user:private-id")).resolves.toEqual({
+      recordingEnabled: true,
       textTranslationEnabled: true, audioTranscriptionEnabled: false, translationMode: "zh-to-en",
     });
     expect(doc).toHaveBeenCalledWith("user:private-id");
+  });
+  it("keeps recording disabled when translation and audio settings change", async () => {
+    const {store} = setup({recordingEnabled: false});
+    await store.setModeAndEnabled("group", "zh-vi", "owner");
+    await store.setAudioTranscriptionEnabled("group", true, "owner");
+    expect((await store.getSettings("group")).recordingEnabled).toBe(false);
   });
 });
 

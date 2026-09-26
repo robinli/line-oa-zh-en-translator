@@ -5,6 +5,24 @@ import {createHash} from 'node:crypto';
 import {Firestore,Timestamp} from 'firebase-admin/firestore';
 import {GoogleAuth} from 'google-auth-library';
 import {NMT_TEST_PROJECT,NMT_TEST_ACCOUNT} from '../lib/nmt-isolation.js';
+import {isQualityGroupId,qualityGroupName} from '../lib/translation-quality-store.js';
+
+export function exportGroups(config,registered,messages=[],cases=[]) {
+ if(!config||!Array.isArray(config.groups))throw Error('Collection configuration required');
+ const groups=new Map(config.groups.filter(g=>isQualityGroupId(g.id)).map(g=>[g.id,{id:g.id,name:g.name}]));
+ for(const g of [...registered,...messages,...cases]){
+  const id=g.groupId??g.id;if(!isQualityGroupId(id??'')||groups.has(id))continue;
+  groups.set(id,{id,name:g.groupName||qualityGroupName(id)});
+ }
+ return [...groups.values()];
+}
+export function selectExportRows(groups,selection,messages,cases){
+ const matches=groups.filter(g=>selection==='all'||g.id===selection||g.name===selection);
+ if(selection!=='all'&&!matches.length)throw Error('Unknown group');
+ if(selection!=='all'&&matches.length>1)throw Error('Ambiguous group name; use group ID');
+ const allowed=new Set(matches.map(g=>g.id));
+ return {messages:messages.filter(r=>allowed.has(r.groupId)),cases:cases.filter(r=>allowed.has(r.groupId)||(selection==='all'&&!r.groupId))};
+}
 
 export function exportOptions(args,root=resolve(fileURLToPath(new URL('../..',import.meta.url)))) {
  const values=Object.fromEntries(args.map(x=>{const i=x.indexOf('=');return [x.slice(0,i),x.slice(i+1)];}));
@@ -57,11 +75,12 @@ export async function runExport(args) {
  const db=new Firestore({projectId:NMT_TEST_PROJECT,databaseId:'(default)'});
  try{
   const config=(await db.doc('lineTranslationQualityConfig/current').get()).data();
-  if(!config||!Array.isArray(config.groups)||config.groups.length!==4)throw Error('Four-group collection configuration required');
-  const allowed=new Set(config.groups.filter(g=>options.group==='all'||g.id===options.group||g.name===options.group).map(g=>g.id));if(!allowed.size)throw Error('Group is outside the collection configuration');
-  const messages=(await allPages(db.collection('lineTranslationMessages'),'eventTime',options.start,options.end)).filter(r=>allowed.has(r.groupId));
-  const cases=(await allPages(db.collection('lineTranslationErrorCases'),'createdAt',options.start,options.end)).filter(r=>allowed.has(r.groupId)||(options.group==='all'&&!r.groupId));
-  const diagnostics=await storageLogs(auth,options.start,options.end,config.groups),summary={project:NMT_TEST_PROJECT,exportedAt:new Date().toISOString(),from:options.start.toISOString(),untilExclusive:options.end.toISOString(),collectionStartedAt:jsonValue(config.startedAt),...summarize(messages,cases,diagnostics)};
+  const registered=(await db.collection('lineTranslationGroups').get()).docs.map(d=>({id:d.id,...d.data()}));
+  const rawMessages=await allPages(db.collection('lineTranslationMessages'),'eventTime',options.start,options.end);
+  const rawCases=await allPages(db.collection('lineTranslationErrorCases'),'createdAt',options.start,options.end);
+  const groups=exportGroups(config,registered,rawMessages,rawCases);
+  const {messages,cases}=selectExportRows(groups,options.group,rawMessages,rawCases);
+  const diagnostics=await storageLogs(auth,options.start,options.end,groups),summary={project:NMT_TEST_PROJECT,exportedAt:new Date().toISOString(),from:options.start.toISOString(),untilExclusive:options.end.toISOString(),collectionStartedAt:jsonValue(config.startedAt),...summarize(messages,cases,diagnostics)};
   mkdirSync(options.output,{recursive:true});
   for(const [name,rows]of [['messages',messages],['error-cases',cases]])writeFileSync(resolve(options.output,name+'.jsonl'),rows.map(x=>JSON.stringify(x)).join('\r\n')+(rows.length?'\r\n':''),'utf8');
   writeFileSync(resolve(options.output,'summary.json'),JSON.stringify(summary,null,2).replace(/\n/g,'\r\n')+'\r\n','utf8');
