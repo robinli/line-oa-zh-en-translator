@@ -1,8 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {exportOptions,jsonValue,summarize} from './export-translation-quality.mjs';
+import {exportOptions,jsonValue,summarize,exportGroups,selectExportRows} from './export-translation-quality.mjs';
 const root='E:/workspace';
 const args=['--project=line-auto-translate-bot-dev','--from=2026-09-25','--to=2026-10-01'];
+test('dynamic export includes new and disabled groups and preserves historical rows',()=>{
+ const a='C'+'1'.repeat(32),b='C'+'2'.repeat(32),c='C'+'3'.repeat(32);
+ const messages=[{groupId:a},{groupId:b},{groupId:c,groupName:'Historical'}],cases=[{groupId:b},{groupId:null}];
+ const groups=exportGroups({groups:[{id:a,name:'Original'}]},[{id:b,groupName:'T1',recordingEnabled:false}],messages,cases);
+ assert.equal(groups.length,3);assert.deepEqual(selectExportRows(groups,'all',messages,cases),{messages,cases});
+ assert.deepEqual(selectExportRows(groups,'T1',messages,cases),{messages:[messages[1]],cases:[cases[0]]});
+ assert.throws(()=>selectExportRows(groups,'missing',messages,cases));
+ assert.deepEqual(selectExportRows([],'all',[],[]),{messages:[],cases:[]});
+});
 test('export date bounds cover inclusive Taipei days',()=>{
  const result=exportOptions(args,root);assert.equal(result.start.toISOString(),'2026-09-24T16:00:00.000Z');assert.equal(result.end.toISOString(),'2026-10-01T16:00:00.000Z');assert.equal(result.group,'all');
 });

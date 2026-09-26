@@ -50,7 +50,7 @@ describe("single webhook translation routing", () => {
   it("defaults off without initializing either translation branch", async () => {
     const t = setup();
     expect(await t.settingsStore.getSettings("group")).toEqual({
-      translationMode: "zh-en", textTranslationEnabled: false, audioTranscriptionEnabled: false});
+      translationMode: "zh-en", textTranslationEnabled: false, audioTranscriptionEnabled: false, recordingEnabled: true});
     await t.send([t.event("你好"), t.event("/翻譯設定")]);
     expect(t.collection).toHaveBeenCalledWith("lineTranslationGroups");
     expect(t.createEnglish).not.toHaveBeenCalled();

@@ -7,6 +7,9 @@ export const QUALITY_CASES_COLLECTION = "lineTranslationErrorCases";
 export const QUALITY_SESSIONS_COLLECTION = "lineTranslationReportSessions";
 export const QUALITY_CONFIG_PATH = "lineTranslationQualityConfig/current";
 export const REPORT_SESSION_MS = 30 * 60 * 1000;
+export const RECORDING_GROUPS_COLLECTION = "lineTranslationGroups";
+export function isQualityGroupId(id: string): boolean {return /^C[0-9a-f]{32}$/iu.test(id);}
+export function qualityGroupName(id: string): string {return `群組 ${hash([id]).slice(0, 10)}`;}
 export interface QualityGroup {id: string; name: string}
 export interface QualityConfig {enabled: true; groups: QualityGroup[]; startedAt: Date}
 export interface QualityOriginal {
@@ -34,11 +37,14 @@ export interface ReportSession {
   id: string; stage: string; expiresAt: number; draft: ReportDraft;
   search?: {groupIds: string[]; start: number; end: number; keyword: string; cursor?: SearchCursor};
   results?: QualityMessage[]; nextCursor?: SearchCursor | null; viewOffset?: number;
+  groupChoices?: QualityGroup[]; groupPage?: number;
 }
 export interface QualityCase {id: string; ownerUserId: string; status: "pending_analysis"; createdAt: Date; draft: ReportDraft}
 export interface ReportTransition {session: ReportSession | null; reply: string | null; errorCase?: QualityCase}
 export interface TranslationQualityStore {
   getConfig(): Promise<QualityConfig | null>;
+  getRecordingEnabled(groupId: string): Promise<boolean>;
+  setRecordingEnabled(groupId: string, enabled: boolean, changedBy: string, eventId: string, eventTime: number): Promise<{enabled: boolean; applied: boolean}>;
   saveOriginal(record: QualityOriginal): Promise<void>;
   complete(record: QualityOriginal, completion: QualityCompletion): Promise<void>;
   search(query: QualitySearch): Promise<QualitySearchResult>;
@@ -58,11 +64,11 @@ export function normalizeQualityKeyword(value: string): string {return value.nor
 export function parseQualityConfig(value: unknown): QualityConfig | null {
   if (!value || typeof value !== "object") return null;
   const data = value as Record<string, unknown>;
-  if (data.enabled !== true || !Array.isArray(data.groups) || data.groups.length !== 4) return null;
+  if (data.enabled !== true || !Array.isArray(data.groups)) return null;
   const groups: QualityGroup[] = [];
   for (const group of data.groups) {
     if (!group || typeof group !== "object" || typeof group.id !== "string" || !/^C[0-9a-f]{32}$/iu.test(group.id) ||
-      typeof group.name !== "string" || !group.name.trim() || group.name.length > 100 || /\bT1\b/iu.test(group.name) || groups.some(item => item.id === group.id)) return null;
+      typeof group.name !== "string" || !group.name.trim() || group.name.length > 100 || groups.some(item => item.id === group.id)) return null;
     groups.push({id: group.id, name: group.name});
   }
   const startedAt = qualityDate(data.startedAt);
@@ -85,7 +91,37 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
   constructor(private readonly firestore: Firestore, private readonly options: {projectId: string; revision?: string; now?: () => Date}) {this.now = options.now ?? (() => new Date());}
   async getConfig(): Promise<QualityConfig | null> {
     if (this.options.projectId !== NMT_TEST_PROJECT) return null;
-    return parseQualityConfig((await this.firestore.doc(QUALITY_CONFIG_PATH).get()).data());
+    const config = parseQualityConfig((await this.firestore.doc(QUALITY_CONFIG_PATH).get()).data());
+    if (!config) return null;
+    const known = new Set(config.groups.map(group => group.id));
+    const snapshot = await this.firestore.collection(RECORDING_GROUPS_COLLECTION).get();
+    for (const doc of snapshot.docs.sort((a, b) => a.id.localeCompare(b.id))) {
+      if (!isQualityGroupId(doc.id) || known.has(doc.id)) continue;
+      const name = doc.get("groupName");
+      config.groups.push({id: doc.id, name: typeof name === "string" && name.trim() ? name.slice(0, 100) : qualityGroupName(doc.id)});
+    }
+    return config;
+  }
+  async getRecordingEnabled(groupId: string): Promise<boolean> {
+    if (this.options.projectId !== NMT_TEST_PROJECT || !isQualityGroupId(groupId)) return false;
+    const value = (await this.firestore.collection(RECORDING_GROUPS_COLLECTION).doc(groupId).get()).get("recordingEnabled");
+    if (value !== undefined && typeof value !== "boolean") throw new Error("invalid_recording_setting");
+    return value !== false;
+  }
+  async setRecordingEnabled(groupId: string, enabled: boolean, changedBy: string, eventId: string, eventTime: number): Promise<{enabled: boolean; applied: boolean}> {
+    if (this.options.projectId !== NMT_TEST_PROJECT || !isQualityGroupId(groupId) || !changedBy || !eventId || !Number.isFinite(eventTime) || Math.abs(eventTime) > 8640000000000000) throw new Error("invalid_recording_command");
+    const ref = this.firestore.collection(RECORDING_GROUPS_COLLECTION).doc(groupId);
+    const receipt = ref.collection("recordingCommands").doc(hash([eventId]));
+    return this.firestore.runTransaction(async transaction => {
+      const [group, previous] = await transaction.getAll(ref, receipt);
+      const current = group!.get("recordingEnabled") !== false;
+      if (previous!.exists) return {enabled: current, applied: false};
+      const lastTime = qualityDate(group!.get("recordingCommandAt"));
+      const applied = !lastTime || eventTime > lastTime.getTime();
+      if (applied) transaction.set(ref, {recordingEnabled: enabled, recordingChangedBy: changedBy, recordingChangedAt: this.now(), recordingCommandAt: new Date(eventTime)}, {merge: true});
+      transaction.create(receipt, {enabled, changedBy, eventTime: new Date(eventTime), recordedAt: this.now(), applied});
+      return {enabled: applied ? enabled : current, applied};
+    }, {maxAttempts: 2});
   }
   async saveOriginal(record: QualityOriginal): Promise<void> {await this.persist(record);}
   async complete(record: QualityOriginal, completion: QualityCompletion): Promise<void> {await this.persist(record, completion);}
@@ -94,6 +130,7 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
     const ref = this.firestore.collection(QUALITY_MESSAGES_COLLECTION).doc(qualityMessageId(record));
     await this.firestore.runTransaction(async transaction => {
       const existing = await transaction.get(ref);
+      transaction.set(this.firestore.collection(RECORDING_GROUPS_COLLECTION).doc(record.groupId), {groupName: record.groupName}, {merge: true});
       if (!existing.exists) transaction.create(ref, originalData(record));
       if (completion && !existing.get("completedAt")) {
         const data = completionData(completion);

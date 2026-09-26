@@ -15,6 +15,7 @@ export async function processTranslationReport(event: UserTextMessageEvent, owne
     if (previous) onActiveSession?.();
     const fresh = (): ReportSession => ({id: eventId, stage: "menu", expiresAt: now.getTime() + REPORT_SESSION_MS, draft: {kind: "search"}});
     let session: ReportSession = previous ? structuredClone(previous) : fresh();
+    config = {...config, groups: session.groupChoices ?? config.groups};
     const respond = (reply: string): ReportTransition => ({session, reply});
     if (text === REPORT_COMMAND) {session = fresh(); return respond(MENU);}
     if (!previous) return {session: null, reply: text === "/取消" || text === "/返回" || text === "確認" ? "目前沒有有效的回報草稿，請輸入 /翻譯錯誤。" : null};
@@ -27,12 +28,17 @@ export async function processTranslationReport(event: UserTextMessageEvent, owne
       return respond(prompt(session, config));
     }
     if (session.stage === "menu") {
+      session.groupChoices = config.groups; session.groupPage = 0;
       if (text === "1" || text === "搜尋") {session.stage = "searchGroup"; session.draft = {kind: "search"};}
       else if (text === "2" || text === "手動") {session.stage = "manualGroup"; session.draft = {kind: "manual"};}
       return respond(prompt(session, config));
     }
     if (session.stage === "searchGroup" || session.stage === "manualGroup") {
-      const index = /^\d$/u.test(text) ? Number(text) : -1;
+      if (text === "下一頁" || text === "上一頁") {
+        session.groupPage = Math.max(0, Math.min(Math.max(0, Math.ceil(config.groups.length / 10) - 1), (session.groupPage ?? 0) + (text === "下一頁" ? 1 : -1)));
+        return respond(prompt(session, config));
+      }
+      const index = /^\d+$/u.test(text) ? Number(text) : -1;
       const group = config.groups[index - 1];
       if (index !== 0 && !group) return respond(prompt(session, config));
       session.draft.groupId = group?.id ?? null;
@@ -108,7 +114,9 @@ export async function processTranslationReport(event: UserTextMessageEvent, owne
   });
 }
 function prompt(session: ReportSession, config: QualityConfig): string {
-  const groupChoices = config.groups.map((group, index) => `${index + 1} ${group.name}`).join("\n");
+  const offset = (session.groupPage ?? 0) * 10;
+  const groupChoices = config.groups.slice(offset, offset + 10).map((group, index) => `${offset + index + 1} ${group.name}`).join("\n") +
+    (config.groups.length > 10 ? `\n第 ${(session.groupPage ?? 0) + 1}/${Math.ceil(config.groups.length / 10)} 頁；輸入 上一頁／下一頁，或群組編號。` : "");
   switch (session.stage) {
     case "menu": return MENU;
     case "searchGroup": return "選擇搜尋群組：\n0 全部已設定群組\n" + groupChoices;

@@ -14,6 +14,7 @@ export interface LineWebhookBody {
 
 export interface GroupTextMessageEvent {
   type: "message";
+  timestamp?: number;
   replyToken: string;
   source: {
     type: "group";

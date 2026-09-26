@@ -1,5 +1,6 @@
 import type {WebhookDependencies} from "./webhook.js";
 import type {QualityCompletion, QualityConfig, QualityOriginal} from "./translation-quality-store.js";
+import {isQualityGroupId, qualityGroupName} from "./translation-quality-store.js";
 
 export interface QualityTrace extends QualityCompletion {}
 export async function qualityOperation<T>(operation: () => Promise<T>, dependencies: WebhookDependencies, eventId?: string): Promise<T | undefined> {
@@ -19,8 +20,8 @@ export function captureQualityOriginal(event: unknown, config: QualityConfig, no
   const source = value.source as Record<string, unknown> | undefined;
   const message = value.message as Record<string, unknown> | undefined;
   if (value.type !== "message" || source?.type !== "group" || typeof source.groupId !== "string" || !message || typeof message.type !== "string") return null;
-  const group = config.groups.find(item => item.id === source.groupId);
-  if (!group) return null;
+  if (!isQualityGroupId(source.groupId)) return null;
+  const group = config.groups.find(item => item.id === source.groupId) ?? {id: source.groupId, name: qualityGroupName(source.groupId)};
   const eventId = typeof value.webhookEventId === "string" && value.webhookEventId ? value.webhookEventId : null;
   const messageId = typeof message.id === "string" && message.id ? message.id : null;
   if (!eventId && !messageId) {onMissingId?.(group.id); return null;}
