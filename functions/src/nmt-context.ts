@@ -1,9 +1,10 @@
+import {protectLiteralCodes, type LiteralCodeSpan} from "./literal-codes.js";
 import {normalizeNmtSource} from "./nmt-source-context.js";
 import {prepareTradeText, type PreparedTradeText, TranslationQualityError} from "./trade-policy.js";
 
 export interface LlmParagraph {id: number; start: number; text: string; separator: string}
 export interface LlmOccurrence {
-  id: number; token: string; start: number; end: number; value: string; kind: string;
+  id: number; token: string; start: number; end: number; value: string; kind: string; literal?: boolean;
   number?: string; sign?: string; precision?: number; unit?: string; unitGroup?: string;
   currency?: string; denominator?: string; externalDenominator?: string; percent?: string; role?: string;
 }
@@ -54,11 +55,11 @@ export function sourceParagraphs(text: string): LlmParagraph[] {
   result.push({id: result.length, start, text: text.slice(start), separator: ""});
   return result;
 }
-export function prepareLlmContext(text: string, names: readonly string[], ranges: ReadonlyArray<{start: number; length: number}> = [], targetLanguage?: string): PreparedLlmContext {
+export function prepareLlmContext(text: string, names: readonly string[], ranges: ReadonlyArray<{start: number; length: number}> = [], targetLanguage?: string, protectCodes = true): PreparedLlmContext {
   if (ranges.length > 20) throw new TranslationQualityError("invalid_protected_range");
   const original = prepareTradeText(text, names, ranges, true);
   const values = new Map(original.protectedValues.map(item => [item.token, item]));
-  const spans: Array<{start: number; end: number; kind: string; value: string}> = [];
+  let spans: LiteralCodeSpan[] = [];
   let delta = 0;
   for (const match of original.text.matchAll(new RegExp(original.prefix + "\\d+__", "gu"))) {
     const item = values.get(match[0])!, start = match.index + delta;
@@ -76,6 +77,13 @@ export function prepareLlmContext(text: string, names: readonly string[], ranges
   collect(new RegExp(unitSource, "giu"), "unit");
   collect(new RegExp(currencySource, "giu"), "currency");
   collect(/\bFIBC(?=s?\b)/gu, "packaging-code");
+  if (protectCodes) {
+    for (const span of spans) {
+      const details = span.kind === "quantity" ? quantityDetails(span.value) : undefined;
+      if (details?.currency && !details.denominator) span.sourceDenominator = externalPricingDenominator(text.slice(span.end));
+    }
+    spans = protectLiteralCodes(text, spans);
+  }
   spans.sort((a, b) => a.start - b.start);
   const prepared: PreparedLlmContext = {original: text, text: "", prefix: original.prefix, protectedValues: [], rangeTokens: [],
     occurrences: [], paragraphs: sourceParagraphs(text), exactQuantities: /保持原樣|原樣保留|不要改單位|不(?:要)?(?:更改|改變)單位|copy\s+exactly|do\s+not\s+(?:change|convert)\s+(?:the\s+)?units/iu.test(text), targetLanguage};
@@ -83,7 +91,8 @@ export function prepareLlmContext(text: string, names: readonly string[], ranges
   for (const span of spans) {
     const id = prepared.occurrences.length, token = prepared.prefix + id + "__";
     const details: Partial<LlmOccurrence> = span.kind === "quantity" ? quantityDetails(span.value) : {};
-    const externalDenominator = details.currency && !details.denominator ? externalPricingDenominator(text.slice(span.end)) : undefined;
+    const externalDenominator = span.literal && span.sourceDenominator ? span.sourceDenominator :
+      details.currency && !details.denominator ? externalPricingDenominator(text.slice(span.end)) : undefined;
     const before = text.slice(Math.max(0, span.start - 40), span.start).split(/[;；,，.。\r\n]/u).at(-1)!;
     const after = text.slice(span.end, span.end + 35).split(/[;；,，.。\r\n]/u)[0]!;
     const role = /(?:net(?: weight)?|淨重)[ :：]*$/iu.test(before) || /^[ \t]*(?:net\b|淨重)/iu.test(after) ? "net" :

@@ -13,7 +13,8 @@
     "evaluate:tllm": "npm --prefix functions run evaluate:tllm",
     "nmt:identity": "node functions/scripts/nmt-admin.mjs identity",
     "nmt:provision": "node functions/scripts/nmt-admin.mjs provision",
-    "nmt:dry-run": "node functions/scripts/evaluate-nmt.mjs --dry-run"
+    "nmt:dry-run": "node functions/scripts/evaluate-nmt.mjs --dry-run",
+    "prepare:dev": "node functions/scripts/prepare-dev-deploy.mjs"
   },
   "engines": {
     "node": "22"

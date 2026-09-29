@@ -10,8 +10,9 @@ test('all fixed aliases deduplicate only exact direction, complete source, UTF16
  const a={sourceLanguage:'en',targetLanguage:'zh-TW',source:'😀 @A @A',mentions:[{start:3,length:2}]};
  assert.notEqual(caseKey(a),caseKey({...a,mentions:[{start:6,length:2}]}));assert.notEqual(caseKey(a),caseKey({...a,source:a.source+' '}));assert.deepEqual(ranges(a),[{start:3,length:2}]);
 });
+// Literal-code spans change the encoded wire; this is an offline estimate, not paid usage.
 test('dry-run uses final encoded main and auxiliary contents with fixed core rounds',async()=>{
- const contract=await createContract();assert.deepEqual(contract.summary,{logicalCases:330,uniqueCases:318,selectedCases:318,results:336,requests:335,characters:58291,skipped:1});
+ const contract=await createContract();assert.deepEqual(contract.summary,{logicalCases:330,uniqueCases:318,selectedCases:318,results:336,requests:335,characters:60185,skipped:1});
  const label=contract.jobs.find(j=>j.sample.id==='v2h15');assert.equal(label.characters,176);assert.equal(label.request.contents.reduce((n,s)=>n+[...s].length,0),176);
  const again=await createContract();assert.equal(contract.contractHash,again.contractHash);
  assert.equal(contract.jobs.filter(j=>j.round>1).length,18);assert.equal(contract.jobs.find(j=>!j.request).sample.source,'PP-BK?');

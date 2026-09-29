@@ -4,6 +4,10 @@ import {externalPricingDenominator, pricingDenominatorKey, prepareLlmContext, qu
 const escapeHtml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 const escapePattern = (text: string) => text.replace(/[.*+?^$()|[\]\\]/gu, "\\$&");
 function validateValue(item: LlmOccurrence, value: string): void {
+  if (item.literal) {
+    if (value !== item.value && !(item.kind === "formula-or-date" && value.replace(/[ \t]/gu, "") === item.value.replace(/[ \t]/gu, ""))) throw new TranslationQualityError(item.kind === "quantity" ? "quantity_content_changed" : "exact_occurrence_changed");
+    return;
+  }
   if ((item.kind === "quantity" || item.kind === "unit") && (item.unit || item.kind === "unit") && !item.currency) {
     const unit = item.unit ?? item.value, group = quantityUnitGroup(unit);
     const alternatives: Record<string, string> = {kg: "(?:kg|kgs|kilograms?|公斤)", MT: "(?:MT|metric[ \\t]+tons?|公噸)", lb: "(?:lb|lbs|pounds?|磅)"};
@@ -17,8 +21,9 @@ function validateValue(item: LlmOccurrence, value: string): void {
   if (value !== item.value) throw new TranslationQualityError(item.kind === "quantity" ? "quantity_content_changed" : "exact_occurrence_changed");
 }
 function restoredValue(item: LlmOccurrence, prepared: PreparedLlmContext): string {
+  if (item.literal && item.denominator) return item.value;
   if (prepared.exactQuantities && item.externalDenominator) return item.value + prepared.original.slice(item.end).match(/^[ \t]*\/[ \t]*/u)![0] + item.externalDenominator;
-  if (prepared.targetLanguage !== "en" || prepared.exactQuantities) return item.value;
+  if (item.literal || prepared.targetLanguage !== "en" || prepared.exactQuantities) return item.value;
   return item.kind === "quantity" || item.kind === "unit" ? item.value.replace(/公斤|公噸|磅/gu, unit => ({公斤: "kg", 公噸: "MT", 磅: "lb"})[unit]!) : item.value;
 }
 interface ReturnedPriceDenominator {value: string; start: number; end: number; side: "before" | "after"}
@@ -38,14 +43,14 @@ function returnedPriceDenominator(text: string, index: number, length: number): 
 export function createContextLlmHtml(prepared: PreparedLlmContext, maskNames = false, rawFinancial = false) {
   const tokens = new Map(prepared.occurrences.map(item => [item.token, item]));
   const tokenPattern = new RegExp(prepared.prefix + "\\d+__", "gu");
-  const wire = createLlmWireText(prepared, maskNames);
-  const visible = (item: LlmOccurrence) => item.kind === "quantity" && (Boolean(item.unit) && !item.currency && !maskNames || Boolean(item.currency) && maskNames && (prepared.targetLanguage === "en" || rawFinancial)) || item.kind === "unit" || item.kind === "packaging-code" || item.kind === "trade-term";
-  const financialCodes = new Map(prepared.occurrences.filter(item => maskNames && prepared.targetLanguage === "en" && item.currency && item.kind === "quantity").map(item => {
+  const wire = createLlmWireText({...prepared, protectedValues: prepared.protectedValues.filter(item => !tokens.get(item.token)?.literal)}, maskNames);
+  const visible = (item: LlmOccurrence) => !item.literal && (item.kind === "quantity" && (Boolean(item.unit) && !item.currency && !maskNames || Boolean(item.currency) && maskNames && (prepared.targetLanguage === "en" || rawFinancial)) || item.kind === "unit" || item.kind === "packaging-code" || item.kind === "trade-term");
+  const financialCodes = new Map(prepared.occurrences.filter(item => !item.literal && maskNames && prepared.targetLanguage === "en" && item.currency && item.kind === "quantity").map(item => {
     let letters = "", index = item.id + 1;
     while (index) {index--; letters = String.fromCharCode(65 + index % 26) + letters; index = Math.floor(index / 26);}
     return [item.value.replace(/[ \t]/gu, "") + "_CQ" + letters + "QX", item] as const;
   }));
-  const inlineSpan = (item: LlmOccurrence) => item.kind === "person-mention" || item.kind === "quantity" && !visible(item);
+  const inlineSpan = (item: LlmOccurrence) => item.literal || item.kind === "person-mention" || item.kind === "quantity" && !visible(item);
   const encodeInline = (text: string) => escapeHtml(text).replace(tokenPattern, token => {
     const item = tokens.get(token)!;
     if (visible(item)) return escapeHtml([...financialCodes].find(([, value]) => value.id === item.id)?.[0] ?? item.value);
@@ -62,6 +67,9 @@ export function createContextLlmHtml(prepared: PreparedLlmContext, maskNames = f
     }
     if (html.slice(offset).trim()) throw new TranslationQualityError("paragraph_structure_changed");
     const seen = new Set<number>();
+    const exactPricesInText = new Set<string>();
+    const suffixValues: PreparedTradeText["protectedValues"] = [];
+    const remaskedPrices: Array<{from: string; to: string}> = [];
     let masked = paragraphs.map((paragraph, index) => {
       const body = paragraph[3]!; let text = "", cursor = 0;
       const append = (value: string) => {
@@ -78,7 +86,7 @@ export function createContextLlmHtml(prepared: PreparedLlmContext, maskNames = f
         if (ids[0]![2] !== String(id)) throw new TranslationQualityError("exact_occurrence_changed");
         if (!item || !inlineSpan(item) || seen.has(id)) throw new TranslationQualityError("exact_occurrence_changed");
         const sourceParagraph = prepared.paragraphs[index]!;
-        if (item.kind === "quantity" && (item.start < sourceParagraph.start || item.end > sourceParagraph.start + sourceParagraph.text.length)) throw new TranslationQualityError("quantity_paragraph_changed");
+        if ((item.literal || item.kind === "quantity") && (item.start < sourceParagraph.start || item.end > sourceParagraph.start + sourceParagraph.text.length)) throw new TranslationQualityError("quantity_paragraph_changed");
         if (attrs.replace(/\s*(?:id|class|translate)\s*=\s*(?:"[^"]*"|'[^']*')/giu, "").trim()) throw new TranslationQualityError("exact_occurrence_changed");
         validateValue(item, decodeLlmTransport(match[2]!)); seen.add(id); text += item.token; cursor = match.index + match[0].length;
       }
@@ -98,7 +106,7 @@ export function createContextLlmHtml(prepared: PreparedLlmContext, maskNames = f
       }
       if (/_CQ[A-Za-z]*/u.test(body)) throw new TranslationQualityError("quantity_content_changed");
       const scan = body.replace(tokenPattern, token => " ".repeat(token.length));
-      const returned = prepareLlmContext(scan, []).occurrences;
+      const returned = prepareLlmContext(scan, [], [], undefined, false).occurrences;
       let rebuilt = "", cursor = 0;
       for (const output of returned) {
         const sourceParagraph = prepared.paragraphs[index]!;
@@ -114,16 +122,59 @@ export function createContextLlmHtml(prepared: PreparedLlmContext, maskNames = f
       if (masked.split(item.token).length !== 2) throw new TranslationQualityError("exact_occurrence_changed");
       let index = masked.indexOf(item.token);
       if (item.externalDenominator) {
-        const returned = returnedPriceDenominator(masked, index, item.token.length);
+        // A literal price span includes the code's slash suffix. Reconstruct it
+        // for the existing complete-denominator check; never change displayed text.
+        const expanded = masked.replace(tokenPattern, token => token !== item.token && tokens.get(token)?.literal ? tokens.get(token)!.value : token);
+        const expandedIndex = expanded.indexOf(item.token);
+        const checked = item.literal && item.denominator ?
+          expanded.slice(0, expandedIndex + item.token.length) + "/" + item.denominator + expanded.slice(expandedIndex + item.token.length) : expanded;
+        const returned = returnedPriceDenominator(checked, expandedIndex, item.token.length);
         const same = pricingDenominatorKey(returned.value) === pricingDenominatorKey(item.externalDenominator);
         // User-confirmed Chinese rendering of carton; this does not equate English box/carton.
         const acceptedCarton = pricingDenominatorKey(item.externalDenominator) === "carton" && returned.value === "箱";
         if (!same && !acceptedCarton) throw new TranslationQualityError("price_denominator_changed");
-        if (prepared.exactQuantities) {
-          if (returned.side === "before") {
-            masked = masked.slice(0, returned.start) + item.token + masked.slice(index + item.token.length);
-          } else {
-            masked = masked.slice(0, index + item.token.length) + masked.slice(returned.end);
+        if (prepared.exactQuantities && !(item.literal && item.denominator)) {
+          const toMaskedOffset = (offset: number) => {
+            let delta = 0;
+            for (const match of masked.matchAll(tokenPattern)) {
+              const atom = tokens.get(match[0])!;
+              if (match[0] === item.token || !atom.literal) continue;
+              const expandedStart = match.index + delta;
+              if (offset <= expandedStart) return offset - delta;
+              if (offset < expandedStart + atom.value.length) throw new TranslationQualityError("price_denominator_changed");
+              delta += atom.value.length - match[0].length;
+            }
+            return offset - delta;
+          };
+          const slash = prepared.original.slice(item.end).match(/^[ \t]*\/[ \t]*/u)![0];
+          const end = item.end + slash.length + item.externalDenominator.length;
+          let suffix = "", cursor = item.end;
+          const suffixAtoms = prepared.occurrences.filter(atom => atom.start >= item.end && atom.end <= end);
+          for (const atom of suffixAtoms) {
+            suffix += prepared.original.slice(cursor, atom.start) + atom.token;
+            cursor = atom.end;
+          }
+          suffix += prepared.original.slice(cursor, end);
+          const price = item.token + (suffixAtoms.length ? suffix : "");
+          if (returned.side === "before") masked = masked.slice(0, toMaskedOffset(returned.start)) + price + masked.slice(index + item.token.length);
+          else masked = masked.slice(0, index) + price + masked.slice(toMaskedOffset(returned.end));
+          if (suffixAtoms.length) {
+            exactPricesInText.add(item.token);
+            // Keep validated source-only suffix text out of the language scan,
+            // without changing any child token or native mention identity.
+            const protectSuffixText = (value: string) => {
+              if (!value) return "";
+              const token = prepared.prefix + (prepared.protectedValues.length + suffixValues.length) + "__";
+              suffixValues.push({token, kind: "literal-code", value});
+              return token;
+            };
+            let hiddenSuffix = "", position = 0;
+            for (const match of suffix.matchAll(tokenPattern)) {
+              hiddenSuffix += protectSuffixText(suffix.slice(position, match.index)) + match[0];
+              position = match.index + match[0].length;
+            }
+            hiddenSuffix += protectSuffixText(suffix.slice(position));
+            remaskedPrices.push({from: price, to: item.token + hiddenSuffix});
           }
           index = masked.indexOf(item.token);
         }
@@ -138,7 +189,8 @@ export function createContextLlmHtml(prepared: PreparedLlmContext, maskNames = f
         }
       }
     }
-    return {masked, restoration: {...prepared, protectedValues: prepared.protectedValues.map(item => ({...item, value: restoredValue(tokens.get(item.token)!, prepared)}))}};
+    for (const price of remaskedPrices) masked = masked.replace(price.from, () => price.to);
+    return {masked, restoration: {...prepared, protectedValues: [...prepared.protectedValues.map(item => ({...item, value: exactPricesInText.has(item.token) ? tokens.get(item.token)!.value : restoredValue(tokens.get(item.token)!, prepared)})), ...suffixValues]}};
   }
   return {encode, encodeInline, decode};
 }

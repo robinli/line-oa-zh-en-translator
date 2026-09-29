@@ -11,8 +11,9 @@ const operations = [
 export function validateContextLlmMeaning(prepared: PreparedLlmContext, masked: string, result: string, targetLanguage: string): void {
   const source = prepared.original;
   const expandCodes = (text: string) => text.replace(new RegExp(prepared.prefix + "\\d+__", "gu"), token => {
-    const item = prepared.occurrences.find(v => v.token === token)!;
-    return item.kind === "packaging-code" ? item.value : token;
+    const item = prepared.occurrences.find(v => v.token === token);
+    // Decoder-added exact suffix tokens have already passed restoration validation.
+    return item?.kind === "packaging-code" ? item.value : token;
   });
   const sourceMasked = expandCodes(prepared.text), targetMasked = expandCodes(masked);
   const tokenPattern = new RegExp(prepared.prefix + "\\d+__", "gu");

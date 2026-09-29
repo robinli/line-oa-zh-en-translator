@@ -54,9 +54,9 @@ it("changes financial structure only after evidence of price role misalignment",
   const translateText = vi.fn().mockImplementation(async (request: TranslationLlmRequest) => {
     const html = request.contents[0]!;
     const values = [...html.matchAll(/<span\b[^>]*>[^<>]*<\/span>/gu)].map(m => m[0]);
-    return [{glossaryTranslations: [{translatedText: values.length ? '<div id="p0">請勿以' + values[0] + '的成本價取代' + values[1] + '的出廠價。</div>' : '<div id="p0">請勿以CAD 542的成本價取代CAD 566的出廠價。</div>'}]}];
+    return [{glossaryTranslations: [{translatedText: values.length ? '<div id="p0">請勿以' + values[0] + '的成本價取代' + values[1] + '的底價。</div>' : '<div id="p0">請勿以CAD 542的成本價取代CAD 566的底價。</div>'}]}];
   });
-  await expect(new TranslationLlmTranslator(options, {translateText}).translate("Do not replace the ex-factory price of CAD 566 with the cost price of CAD 542.", "en", "zh-TW")).resolves.toBe("請勿以CAD 542的成本價取代CAD 566的出廠價。");
+  await expect(new TranslationLlmTranslator(options, {translateText}).translate("Do not replace the floor price of CAD 566 with the cost price of CAD 542.", "en", "zh-TW")).resolves.toBe("請勿以CAD 542的成本價取代CAD 566的底價。");
   expect(translateText).toHaveBeenCalledTimes(2);
   expect(translateText.mock.calls[1]![0].contents[0]).not.toContain("<span");
 });
