@@ -9,8 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
-    "test": "vitest run src",
-    "test:watch": "vitest src",
+    "test": "vitest run --config vitest.config.mts",
+    "test:watch": "vitest --config vitest.config.mts",
     "verify": "node scripts/verify.mjs",
     "evaluate:trade": "node scripts/evaluate-trade.mjs",
     "evaluate:openai": "node scripts/evaluate-openai.mjs",
@@ -27,7 +27,9 @@
     "test:failure-store": "node scripts/test-translation-failure-store.mjs",
     "export:quality": "node scripts/export-translation-quality.mjs",
     "test:quality-tools": "node --test scripts/test-quality-tools.mjs",
-    "test:quality-store": "node scripts/test-translation-quality-store.mjs"
+    "test:quality-store": "node scripts/test-translation-quality-store.mjs",
+    "test:deploy-tools": "node --test scripts/test-dev-deploy.mjs",
+    "test:local-tools": "node --test scripts/test-local-checks.mjs"
   },
   "dependencies": {
     "@google-cloud/speech": "^8.0.1",

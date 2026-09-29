@@ -83,6 +83,8 @@ if(action==='deploy'||action==='deploy-check'){
  if(action==='deploy'){
   const session={nonce:randomBytes(32).toString('hex'),project,account,createdAt:Date.now()},path=resolve(root,'.local/nmt-auth/deploy-session.json');
   writeFileSync(path,JSON.stringify(session),{flag:'wx'});
-  try{command('firebase',['deploy','--only','functions:lineWebhook','--project='+project,'--account='+account,'--non-interactive'],false,{...process.env,NMT_DEPLOY_SESSION:session.nonce});}finally{unlinkSync(path);}
+  try{command('firebase',['deploy','--only','functions:lineWebhook','--project='+project,'--account='+account,'--non-interactive'],false,{...process.env,NMT_DEPLOY_SESSION:session.nonce});}
+  catch(error){console.error(error.message);process.exitCode=error.exitCode??1;}
+  finally{unlinkSync(path);}
  }
 }

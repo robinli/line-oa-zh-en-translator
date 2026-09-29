@@ -10,7 +10,17 @@ import {NMT_TEST_PROJECT,NMT_TEST_PROJECT_NUMBER,NMT_TEST_ACCOUNT,NMT_TEST_BILLI
 export const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 export function command(executable,args,json=false,env=process.env){
  const result=spawnSync(executable,args,{cwd:root,encoding:'utf8',shell:process.platform==='win32',windowsHide:true,env});
- if(result.status!==0)throw Error('Command failed: '+executable+' '+args.slice(0,3).join(' '));
+ // Preserve Firebase's actual deployment diagnostics, including failures after a successful update.
+ // Do not forward identity/token command output to logs.
+ if(executable==='firebase'&&args[0]==='deploy'){
+  if(result.stdout)process.stdout.write(result.stdout);
+  if(result.stderr)process.stderr.write(result.stderr);
+ }
+ if(result.status!==0){
+  const error=Error('Command failed: '+executable+' '+args.slice(0,3).join(' '));
+  if(executable==='firebase'&&args[0]==='deploy')error.exitCode=Number.isInteger(result.status)&&result.status>0?result.status:1;
+  throw error;
+ }
  return json?JSON.parse(result.stdout):result.stdout.trim();
 }
 export function assertIsolatedEnvironment(env){

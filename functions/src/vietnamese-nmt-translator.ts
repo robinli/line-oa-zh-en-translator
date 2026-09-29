@@ -1,3 +1,4 @@
+import {findLiteralCodeRanges} from "./literal-codes.js";
 import type {Translator, TranslationContext} from "./services.js";
 import type {RestoredTextRange} from "./message-text.js";
 
@@ -30,7 +31,7 @@ function decodeTransportHtml(text: string): string {
   });
 }
 
-// NMT receives the complete paragraph. Only native mention spans are marked notranslate.
+// NMT receives the complete paragraph. Native mentions and literal codes are marked notranslate.
 // This module has no trade policy, model prompt, terminology checks or person-name list.
 export class VietnameseNmtTranslator implements Translator {
   private client: NmtClient | undefined;
@@ -48,7 +49,18 @@ export class VietnameseNmtTranslator implements Translator {
       throw new Error("Vietnamese program only supports Chinese and Vietnamese.");
     }
     if (!text || text.length > 2000) throw new NmtTranslationError();
-    const protectedRanges = [...context?.protectedRanges ?? []].sort((a, b) => a.start - b.start);
+    const nativeRanges = [...context?.protectedRanges ?? []].sort((a, b) => a.start - b.start);
+    let previousEnd = 0;
+    for (const range of nativeRanges) {
+      if (!Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.length) ||
+          range.start < previousEnd || range.length <= 0 || range.start + range.length > text.length) throw new NmtTranslationError();
+      previousEnd = range.start + range.length;
+    }
+    const literalRanges = findLiteralCodeRanges(text).filter(range => !nativeRanges.some(native =>
+      range.start < native.start + native.length && range.start + range.length > native.start));
+    const protectedRanges = [...nativeRanges.map(range => ({...range, native: true})),
+      ...literalRanges.map(range => ({...range, native: false}))].sort((a, b) => a.start - b.start);
+    const literalParagraphs = new Map<number, number>();
     type Paragraph = {html: string; translatable: boolean; separator: string};
     const paragraphs: Paragraph[] = [];
     let paragraph: Paragraph = {html: "", translatable: false, separator: ""};
@@ -71,6 +83,7 @@ export class VietnameseNmtTranslator implements Translator {
         throw new NmtTranslationError();
       }
       appendBody(text.slice(cursor, range.start));
+      if (!range.native) literalParagraphs.set(id, paragraphs.length);
       paragraph.html += '<span translate="no" class="notranslate" id="m' + id + '">' +
         escapeHtml(text.slice(range.start, range.start + range.length)) + "</span>";
       cursor = range.start + range.length;
@@ -104,7 +117,7 @@ export class VietnameseNmtTranslator implements Translator {
         if (/[<>]/u.test(html)) throw new NmtTranslationError();
         translatedText += decodeTransportHtml(html);
       };
-      for (const item of paragraphs) {
+      for (const [paragraphIndex, item] of paragraphs.entries()) {
         const html = item.translatable ? translations[translationIndex++]! : item.html;
         let offset = 0;
         for (const match of html.matchAll(/<span\b([^>]*)>([^<>]*)<\/span>/giu)) {
@@ -112,10 +125,10 @@ export class VietnameseNmtTranslator implements Translator {
           const idMatch = match[1]!.match(/(?:^|\s)id\s*=\s*(["'])m(\d+)\1/iu);
           const id = idMatch ? Number(idMatch[2]) : -1;
           const range = protectedRanges[id];
-          if (!range || seen.has(id)) throw new NmtTranslationError();
+          if (!range || seen.has(id) || (!range.native && literalParagraphs.get(id) !== paragraphIndex)) throw new NmtTranslationError();
           const original = text.slice(range.start, range.start + range.length);
           if (decodeTransportHtml(match[2]!) !== original) throw new NmtTranslationError();
-          ranges.push({sourceStart: range.start, start: translatedText.length, length: original.length});
+          if (range.native) ranges.push({sourceStart: range.start, start: translatedText.length, length: original.length});
           translatedText += original;
           seen.add(id);
           offset = match.index + match[0].length;

@@ -1,3 +1,4 @@
+// Spaced slash rates exercise natural unit translation; contiguous literal rates are covered in literal-codes.test.ts.
 import {it, expect} from "vitest";
 import {NmtGlossaryTranslator, type NmtGlossaryRequest, type NmtGlossaryClient} from "./nmt-glossary-translator.js";
 import {prepareLlmContext} from "./nmt-context.js";
@@ -5,10 +6,16 @@ import {createContextLlmHtml} from "./nmt-context-html.js";
 const parent = "projects/test-project/locations/us-central1";
 const options = {projectId: "test-project", location: "us-central1", glossaryZhEn: parent + "/glossaries/zh-en", glossaryEnZh: parent + "/glossaries/en-zh"};
 const atom = (r: NmtGlossaryRequest, value: string, index = 0) => [...r.contents[0]!.matchAll(/<span\b[^>]*>([^<>]*)<\/span>/gu)].filter(m => m[1] === value)[index]?.[0] ?? value;
+function preserveLiteralSpans(request: {contents: string[]}, output: string): string {
+  for (const match of request.contents[0]!.matchAll(/<span\b[^>]*>([^<>]*)<\/span>/gu)) {
+    if (/^[A-Za-z]+[-/][A-Za-z/-]+$/u.test(match[1]!) && !output.includes(match[0])) output = output.replace(match[1]!, match[0]);
+  }
+  return output;
+}
 const div = (s: string) => '<div id="p0">' + s + '</div>';
 async function translate(source: string, output: (r: NmtGlossaryRequest) => string, target = "zh-TW") {
   let calls = 0;
-  const client: NmtGlossaryClient = {async translateText(request: NmtGlossaryRequest) {calls++; return [{glossaryTranslations: [{translatedText: output(request)}]}];}};
+  const client: NmtGlossaryClient = {async translateText(request: NmtGlossaryRequest) {calls++; return [{glossaryTranslations: [{translatedText: preserveLiteralSpans(request, output(request))}]}];}};
   const ranges = [...source.matchAll(/@Nora/gu)].map(m => ({start: m.index, length: 5}));
   const result = await new NmtGlossaryTranslator(options, client).translateWithRanges(source, target === "en" ? "zh-TW" : "en", target, {protectedRanges: ranges});
   return {...result, calls};
@@ -45,12 +52,12 @@ it.each([false])("retains quantity paragraph ownership on both wire attempts %s"
   expect(() => wire.decode('<div id="p0">首筆訂單使用' + atom(request, "17 kg") + '袋。</div><div id="p1">第二筆訂單使用' + atom(request, "680 kg") + '袋。</div>')).not.toThrow();
 });
 it.each([["bag", "袋", true], ["bag", "箱", false], ["bag", "紙箱", false], ["box", "箱", true], ["box", "袋", false], ["carton", "紙箱", true], ["carton", "箱", true], ["crate", "crate", true], ["crate", "箱", false], ["crate", "crates", false]])("checks external price denominator %s → %s", async (from, to, accepted) => {
-  const promise = translate("The packaging charge is USD 8/" + from + ".", r => div("包裝費為" + atom(r, "USD 8") + "/" + to + "。"));
+  const promise = translate("The packaging charge is USD 8 / " + from + ".", r => div("包裝費為" + atom(r, "USD 8") + "/" + to + "。"));
   if (accepted) await expect(promise).resolves.toHaveProperty("calls", 1);
   else await expect(promise).rejects.toThrow("price_denominator_changed");
 });
 it.each(["", "/box"])("rejects removed or changed pricing denominator %s", async tail => {
-  await expect(translate("The price is USD 8/bag.", r => div("價格為" + atom(r, "USD 8") + tail + "。"))).rejects.toThrow();
+  await expect(translate("The price is USD 8 / bag.", r => div("價格為" + atom(r, "USD 8") + tail + "。"))).rejects.toThrow();
 });
 it("resolves only an explicit packaging fallback at the source and rejects invented registration", async () => {
   const source = "請保留小袋方案。\n備案是560公斤 FIBC 大袋。";
@@ -74,7 +81,7 @@ it("allows a vocative comma without detaching its quantity object", async () => 
 });
 
 it.each([["crate-pack", "crate-box", false], ["crate-pack", "crate-pack", true], ["bag-XL", "bag-XS", false], ["bag-XL", "bag-XL", true], ["crate/day", "crate/week", false], ["crate/day", "crate/day", true]])("keeps complete unknown pricing denominator %s → %s", async (from, to, accepted) => {
-  const promise = translate("The packaging charge is USD 8/" + from + ".", r => div("包裝費為" + atom(r, "USD 8") + "/" + to + "。"));
+  const promise = translate("The packaging charge is USD 8 / " + from + ".", r => div("包裝費為" + atom(r, "USD 8") + "/" + to + "。"));
   if (accepted) await expect(promise).resolves.toHaveProperty("calls", 1);
   else await expect(promise).rejects.toThrow();
 });
@@ -91,15 +98,15 @@ it.each(["不是禁止換算單位", "並非禁止換算單位", "不禁止換�
 });
 
 it.each([["short ton", "short ton", true], ["short ton", "short kg", false], ["crate pack", "crate pack", true], ["crate pack", "crate box", false], ["bag load", "bag load", true], ["bag load", "bag carton", false]])("keeps opaque multiword denominator %s → %s", async (from, to, accepted) => {
-  const promise = translate("The price is USD 8/" + from + ".", r => div("價格為" + atom(r, "USD 8") + "/" + to + "。"));
+  const promise = translate("The price is USD 8 / " + from + ".", r => div("價格為" + atom(r, "USD 8") + "/" + to + "。"));
   if (accepted) await expect(promise).resolves.toHaveProperty("calls", 1);
   else await expect(promise).rejects.toThrow();
 });
 
 it("validates an equivalent denominator before restoring a copy-exact price", async () => {
-  const source = "Copy exactly USD 8/bag.";
+  const source = "Copy exactly USD 8 / bag.";
   const good = await translate(source, r => div("原樣保留" + atom(r, "USD 8") + "/袋。"));
-  expect(good.text).toBe("原樣保留USD 8/bag。");
+  expect(good.text).toBe("原樣保留USD 8 / bag。");
   await expect(translate(source, r => div("原樣保留" + atom(r, "USD 8") + "/箱。"))).rejects.toThrow("price_denominator_changed");
 });
 
