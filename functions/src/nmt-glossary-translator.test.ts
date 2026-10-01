@@ -26,7 +26,7 @@ it.each([
   await expect(new NmtGlossaryTranslator({...options, onMetric}, {translateText}).translate("Use 20 kg bags.", "en", "zh-TW")).rejects.toThrow(reason);
   expect(translateText).toHaveBeenCalledTimes(1);
   expect(onMetric.mock.calls.map(([m]) => m.reason)).toEqual([reason]);
-  for (const [metric] of onMetric.mock.calls) expect(Object.keys(metric).sort()).toEqual(["attempt", "direction", "elapsedMs", "engine", "inputCharacters", "outcome", "outputCharacters", "reason"]);
+  for (const [metric] of onMetric.mock.calls) expect(Object.keys(metric).sort()).toEqual(["adapterVersion", "apiCalled", "attempt", "direction", "elapsedMs", "engine", "inputCharacters", "outcome", "outputCharacters", "protectedCounts", "reason"]);
   expect(JSON.stringify(onMetric.mock.calls)).not.toContain("Use");
 });
 it("accepts a correct prohibition through the real public API", async () => {

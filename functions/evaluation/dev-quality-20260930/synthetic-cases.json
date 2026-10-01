@@ -1,0 +1,338 @@
+{
+  "schemaVersion": 1,
+  "purpose": "offline preparation; not provider quality evidence",
+  "cases": [
+    {
+      "id": "DEVQ-01",
+      "topic": "customs",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "請核對海關稅號與稅則號列。",
+      "rubric": "海關分類代碼，不是納稅人識別號"
+    },
+    {
+      "id": "DEVQ-02",
+      "topic": "tax-id",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "請提供公司的納稅人識別號。",
+      "rubric": "公司 tax ID，不可改海關代碼"
+    },
+    {
+      "id": "DEVQ-03",
+      "topic": "container",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "貨櫃門關閉後才能出貨。",
+      "rubric": "shipping container doors"
+    },
+    {
+      "id": "DEVQ-04",
+      "topic": "cabinet",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "家具的櫃門需要更換。",
+      "rubric": "cabinet door，不可改貨櫃"
+    },
+    {
+      "id": "DEVQ-05",
+      "topic": "balance",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please collect the remaining balance from the buyer.",
+      "rubric": "催收剩餘貨款"
+    },
+    {
+      "id": "DEVQ-06",
+      "topic": "bank-balance",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please check the remaining balance in the bank account.",
+      "rubric": "銀行帳戶餘額，不是催收貨款"
+    },
+    {
+      "id": "DEVQ-07",
+      "topic": "payment-time",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please follow up on the advance payment today.",
+      "rubric": "今天跟進，不可新增今天已支付"
+    },
+    {
+      "id": "DEVQ-08",
+      "topic": "paid-time",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "The advance payment was paid today; follow up tomorrow.",
+      "rubric": "今天已付款，明天跟進"
+    },
+    {
+      "id": "DEVQ-09",
+      "topic": "confirmation",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "We must confirm the delivery date.",
+      "rubric": "必須確認，不可改不必確認"
+    },
+    {
+      "id": "DEVQ-10",
+      "topic": "no-obligation",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "We do not need to confirm the delivery date.",
+      "rubric": "不需要確認，不可改禁止確認"
+    },
+    {
+      "id": "DEVQ-11",
+      "topic": "coverage",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please confirm what it covers.",
+      "rubric": "涵蓋內容不明，不可新增僅服務費"
+    },
+    {
+      "id": "DEVQ-12",
+      "topic": "coverage-date",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please confirm what it covers. Please confirm the delivery date too.",
+      "rubric": "兩個確認對象分開，不可誤擋交期確認"
+    },
+    {
+      "id": "DEVQ-13",
+      "topic": "tariff",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "船公司接受這個稅則，但不接受另一個稅則。",
+      "rubric": "船公司接受海關分類代碼，不是收取稅費"
+    },
+    {
+      "id": "DEVQ-14",
+      "topic": "taxes",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "出口稅與進口稅另計。",
+      "rubric": "真正稅費，不可改 tariff code"
+    },
+    {
+      "id": "DEVQ-15",
+      "topic": "cargo-container",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "The cargo container is near the warehouse.",
+      "rubric": "貨櫃"
+    },
+    {
+      "id": "DEVQ-16",
+      "topic": "food-container",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "The food container is in the kitchen.",
+      "rubric": "食物容器"
+    },
+    {
+      "id": "DEVQ-17",
+      "topic": "fine",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Fine.",
+      "rubric": "完整肯定回覆，可譯好的"
+    },
+    {
+      "id": "DEVQ-18",
+      "topic": "fine-question",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Fine?",
+      "rubric": "保留問句，不套本機肯定回覆"
+    },
+    {
+      "id": "DEVQ-19",
+      "topic": "fine-powder",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "We need fine powder for this product.",
+      "rubric": "細粉，不是同意或罰款"
+    },
+    {
+      "id": "DEVQ-20",
+      "topic": "fine-money",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "The carrier paid a fine.",
+      "rubric": "罰款"
+    },
+    {
+      "id": "DEVQ-21",
+      "topic": "fine-health",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "I'm fine, thank you.",
+      "rubric": "狀況良好"
+    },
+    {
+      "id": "DEVQ-22",
+      "topic": "check-once",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please check with him once.",
+      "rubric": "請確認一次，不可新增稍後"
+    },
+    {
+      "id": "DEVQ-23",
+      "topic": "check-later",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please check with him later.",
+      "rubric": "保留稍後"
+    },
+    {
+      "id": "DEVQ-24",
+      "topic": "called-phone",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "You called the supplier by phone yesterday.",
+      "rubric": "打電話，不是命名"
+    },
+    {
+      "id": "DEVQ-25",
+      "topic": "called-name",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "They called the product Aurora.",
+      "rubric": "命名，不是打電話"
+    },
+    {
+      "id": "DEVQ-26",
+      "topic": "drive",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Have you finished organizing the files in Google Drive?",
+      "rubric": "整理檔案，不可改設定帳號"
+    },
+    {
+      "id": "DEVQ-27",
+      "topic": "update",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "I have not finished it; I will give you an update tomorrow.",
+      "rubric": "尚未完成，明天回報；不暗示明天必定完成"
+    },
+    {
+      "id": "DEVQ-28",
+      "topic": "ask-ai",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "我會直接問 AI 建議使用哪個海關稅號。",
+      "rubric": "向 AI 提問動作，不是深入研究 AI"
+    },
+    {
+      "id": "DEVQ-29",
+      "topic": "advance",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "收到預付款後再安排裝櫃。",
+      "rubric": "收款條件保留，不改已收到"
+    },
+    {
+      "id": "DEVQ-30",
+      "topic": "door-order",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "先裝 PP，再裝 HDPE；HDPE 靠近貨櫃門。",
+      "rubric": "裝櫃順序與位置保留"
+    },
+    {
+      "id": "DEVQ-31",
+      "topic": "literal",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please follow-up on order RF-301 at 30%.",
+      "rubric": "follow-up、RF-301、30% 原樣保留"
+    },
+    {
+      "id": "DEVQ-32",
+      "topic": "denominator",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "The price is USD 980/MT, not USD 980 per bag.",
+      "rubric": "金額幣別兩種分母不可合併"
+    },
+    {
+      "id": "DEVQ-33",
+      "topic": "mention",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "I confirmed with Eric. @Alex please reply.",
+      "rubric": "受確認者 Eric 與收訊者 @Alex 不可合併",
+      "protectedRanges": [
+        {
+          "start": 23,
+          "length": 5
+        }
+      ]
+    },
+    {
+      "id": "DEVQ-34",
+      "topic": "mention-status",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "@Alex has not paid. Eric has paid.",
+      "rubric": "兩人付款狀態分開",
+      "protectedRanges": [
+        {
+          "start": 0,
+          "length": 5
+        }
+      ]
+    },
+    {
+      "id": "DEVQ-35",
+      "topic": "date-pair",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Follow up today on the payment due tomorrow.",
+      "rubric": "今日跟進，明日到期；不新增已支付"
+    },
+    {
+      "id": "DEVQ-36",
+      "topic": "follow-paid",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "Please follow up today about the payment made yesterday.",
+      "rubric": "保留今日跟進與昨日付款"
+    },
+    {
+      "id": "DEVQ-37",
+      "topic": "amount",
+      "sourceLanguageCode": "zh-TW",
+      "targetLanguageCode": "en",
+      "source": "請今天跟進 25% 預付款，餘款下週支付。",
+      "rubric": "跟進與付款時間分開，比例保留"
+    },
+    {
+      "id": "DEVQ-38",
+      "topic": "conditional",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "If payment arrives, we can ship; we have not promised a date.",
+      "rubric": "條件、可能性及未承諾日期均保留"
+    },
+    {
+      "id": "DEVQ-39",
+      "topic": "confirm-both",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "We must confirm the quantity, but need not confirm the color.",
+      "rubric": "同一動作的不同對象義務不可互相遮蔽"
+    },
+    {
+      "id": "DEVQ-40",
+      "topic": "only-code",
+      "sourceLanguageCode": "en",
+      "targetLanguageCode": "zh-TW",
+      "source": "RF-301 30%",
+      "rubric": "既定本機原樣路徑，零 provider 請求"
+    }
+  ]
+}

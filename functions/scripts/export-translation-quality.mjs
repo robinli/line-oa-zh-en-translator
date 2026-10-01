@@ -52,9 +52,24 @@ export function summarize(messages,cases,storageDiagnostics) {
  }
  return {messageCount:messages.length,caseCount:cases.length,byGroupAndDay:Object.values(days),storageDiagnostics,completeness:'Compare stored rows with webhook logs; stored row counts alone cannot prove complete reception.'};
 }
+export function summarizeOperations(operations,messages=[]) {
+ const days={},months={};
+ for(const row of operations){
+  const time=new Date(row.claimedAt),day=Number.isFinite(time.valueOf())?new Date(time.valueOf()+28800000).toISOString().slice(0,10):'unknown';
+  const t=row.telemetry??{},apiCalled=t.apiCalled===true?true:row.providerStatus==='provider_started'?'unknown':t.apiCalled??'unknown';
+  for(const [map,key]of [[days,day],[months,day==='unknown'?'unknown':day.slice(0,7)]]){
+   const item=map[key]??={period:key,operations:0,apiCalledTrue:0,apiCalledFalse:0,apiCalledUnknown:0,reservedCharacters:0,knownWireCharacters:0,unknownWireCharacters:0,outputCharacters:0,deliveryUnknown:0};
+   item.operations++;item[apiCalled===true?'apiCalledTrue':apiCalled===false?'apiCalledFalse':'apiCalledUnknown']++;
+   item.reservedCharacters+=t.reservedCharacters??0;if(apiCalled===true)item.knownWireCharacters+=t.wireCharacters??0;if(apiCalled==='unknown')item.unknownWireCharacters+=t.wireCharacters??0;item.outputCharacters+=t.outputCharacters??0;
+   if(['delivery_started','delivery_unknown'].includes(row.deliveryStatus))item.deliveryUnknown++;
+  }
+ }
+ const ids=new Set(operations.map(row=>row.operationId));
+ return {operationCount:operations.length,byDay:Object.values(days),byMonth:Object.values(months),qualityRowsLinked:messages.filter(row=>row.operationId&&ids.has(row.operationId)).length,historicalUnknown:messages.filter(row=>!row.operationId).length,unmatchedOperationReferences:messages.filter(row=>row.operationId&&!ids.has(row.operationId)).length,qualification:'Independent DEV operation records, including recording-off events. Reservations are not billing; started states without a recorded response are unknown; a recorded true call survives completion-phase write failure. Time window uses operation claim time.'};
+}
 async function allPages(collection,field,start,end) {
  let cursor;const rows=[];
- for(;;){let q=collection.where(field,'>=',Timestamp.fromDate(start)).where(field,'<',Timestamp.fromDate(end)).orderBy(field).limit(200);if(cursor)q=q.startAfter(cursor);const batch=await q.get();rows.push(...batch.docs.map(d=>({id:d.id,...jsonValue(d.data())})));if(batch.size<200)break;cursor=batch.docs.at(-1);}
+ for(;;){let q=collection.where(field,'>=',start instanceof Date?Timestamp.fromDate(start):start).where(field,'<',end instanceof Date?Timestamp.fromDate(end):end).orderBy(field).limit(200);if(cursor)q=q.startAfter(cursor);const batch=await q.get();rows.push(...batch.docs.map(d=>({id:d.id,...jsonValue(d.data())})));if(batch.size<200)break;cursor=batch.docs.at(-1);}
  return rows;
 }
 async function storageLogs(auth,start,end,groups) {
@@ -74,15 +89,19 @@ export async function runExport(args) {
  if(!principal.ok||(await principal.json()).email!==NMT_TEST_ACCOUNT)throw Error('Unexpected DEV principal');
  const db=new Firestore({projectId:NMT_TEST_PROJECT,databaseId:'(default)'});
  try{
-  const config=(await db.doc('lineTranslationQualityConfig/current').get()).data();
+  const config=(await db.doc('lineTranslationQualityConfig/current').get()).data()??{groups:[],startedAt:null};
   const registered=(await db.collection('lineTranslationGroups').get()).docs.map(d=>({id:d.id,...d.data()}));
   const rawMessages=await allPages(db.collection('lineTranslationMessages'),'eventTime',options.start,options.end);
   const rawCases=await allPages(db.collection('lineTranslationErrorCases'),'createdAt',options.start,options.end);
+  const rawOperations=await allPages(db.collection('lineDevEventOperations'),'claimedAt',options.start.toISOString(),options.end.toISOString());
   const groups=exportGroups(config,registered,rawMessages,rawCases);
   const {messages,cases}=selectExportRows(groups,options.group,rawMessages,rawCases);
-  const diagnostics=await storageLogs(auth,options.start,options.end,groups),summary={project:NMT_TEST_PROJECT,exportedAt:new Date().toISOString(),from:options.start.toISOString(),untilExclusive:options.end.toISOString(),collectionStartedAt:jsonValue(config.startedAt),...summarize(messages,cases,diagnostics)};
+  const selectedGroups=groups.filter(g=>options.group==='all'||g.id===options.group||g.name===options.group);
+  const selectedKeys=new Set(selectedGroups.map(g=>createHash('sha256').update(JSON.stringify([g.id])).digest('hex')));
+  const operations=rawOperations.filter(row=>options.group==='all'||selectedKeys.has(row.groupKey));
+  const diagnostics=await storageLogs(auth,options.start,options.end,groups),summary={project:NMT_TEST_PROJECT,exportedAt:new Date().toISOString(),from:options.start.toISOString(),untilExclusive:options.end.toISOString(),collectionStartedAt:jsonValue(config.startedAt),...summarize(messages,cases,diagnostics),operationReconciliation:summarizeOperations(operations,messages)};
   mkdirSync(options.output,{recursive:true});
-  for(const [name,rows]of [['messages',messages],['error-cases',cases]])writeFileSync(resolve(options.output,name+'.jsonl'),rows.map(x=>JSON.stringify(x)).join('\r\n')+(rows.length?'\r\n':''),'utf8');
+  for(const [name,rows]of [['messages',messages],['error-cases',cases],['operations',operations]])writeFileSync(resolve(options.output,name+'.jsonl'),rows.map(x=>JSON.stringify(x)).join('\r\n')+(rows.length?'\r\n':''),'utf8');
   writeFileSync(resolve(options.output,'summary.json'),JSON.stringify(summary,null,2).replace(/\n/g,'\r\n')+'\r\n','utf8');
   console.log(JSON.stringify({output:options.output,messages:messages.length,cases:cases.length,storageDiagnosticsAvailable:diagnostics.available}));
  }finally{await db.terminate();}

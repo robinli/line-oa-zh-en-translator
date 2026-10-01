@@ -14,9 +14,19 @@
 
 ## 2. 模型與正確派工
 
-[專案設定](../.codex/config.toml) 的主 Agent、未指定角色之子 Agent，以及三個自訂角色均使用 gpt-6-astra／high；planner、verifier 保持 read-only，implementer 保持 workspace-write。並行上限仍為 4，這只是容量上限，不是啟動數量目標或 token 預算。
+2026-09-30：[專案設定](../.codex/config.toml) 的主 Agent、未指定角色之子 Agent及標準角色均改用 `gpt-6.1-sol`／`high`；另提供三個同職責的 xHigh 選用角色。planner／verifier 為 read-only，implementer 為 workspace-write，High 與 xHigh 對應相同權限及指令。並行上限仍為 4，這只是容量上限，不是啟動數量目標或 token 預算。
 
-- 使用 spawn_agent 時明確指定 agent_type="planner"、"implementer" 或 "verifier"；只設定 task_name 不會選用角色。
+| 用途 | 標準 High 角色 | 困難任務 xHigh 選用角色 |
+|---|---|---|
+| 規劃 | `planner` | `planner_xhigh` |
+| 實作 | `implementer` | `implementer_xhigh` |
+| 獨立驗證 | `verifier` | `verifier_xhigh` |
+
+主 Agent 預設 High；需要 xHigh 時，在該任務的模型／推理選擇明確指定 GPT-6.1 Sol／xHigh。子 Agent 選用對應的 `_xhigh` 角色；角色檔明確設定推理強度時，不只靠 spawn 的推理參數覆寫標準 High 角色。xHigh 角色是同一職責的替代選項，不同時啟動 High 與 xHigh 來做同一份工作。
+
+模型 ID 與推理設定分開：`model = "gpt-6.1-sol"`，`model_reasoning_effort = "high"` 或 `"xhigh"`。設定只保存在本專案；不建立專案 `profiles`，因官方文件說明其不會生效。官方依據：[GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)、[角色設定及優先序](https://learn.chatgpt.com/docs/agent-configuration/subagents)、[專案設定範圍](https://learn.chatgpt.com/docs/config-file/config-reference)。
+
+- 使用 spawn_agent 時明確指定 agent_type="planner"、"implementer"、"verifier" 或本次明確選用的對應 `_xhigh` 角色；只設定 task_name 不會選用角色。
 - 預設 fork_turns="none"，避免繼承整段開發歷史；交接提供原需求、必要背景、檔案責任、驗收條件、最新 finding 與證據位置。
 - 有關聯的修正沿用原角色，followup_task 只在有實質新工作時使用；不要為取得狀態重新啟動角色。
 - 派工時核對可用角色定義／回傳資訊的模型與推理強度一次；不可只看角色名稱就認定已套用。無法取得實際設定時如實標示，勿反覆讀取整份執行紀錄。

@@ -1,3 +1,4 @@
+import {resolveNmtLocalPhrase} from "./nmt-local-phrases.js";
 import {createContextLlmHtml} from "./nmt-context-html.js";
 import {prepareLlmContext} from "./nmt-context.js";
 import {validateContextLlmMeaning} from "./nmt-context-meaning.js";
@@ -7,7 +8,7 @@ import {DEFAULT_PROTECTED_NAMES, restoreTradeTranslationWithRanges,
   TranslationQualityError, validateTradeTerminology} from "./trade-policy.js";
 import {createLlmWireText, decodeLlmTransport, validateLlmMeaning, normalizeLlmCalendar, normalizeLlmGlossaryGrammar} from "./nmt-protection.js";
 
-export const NMT_GLOSSARY_ADAPTER_VERSION = "nmt-glossary-v21";
+export const NMT_GLOSSARY_ADAPTER_VERSION = "nmt-glossary-v22";
 export interface NmtGlossaryRequest {
   parent: string; model: string; contents: string[]; mimeType: "text/plain" | "text/html";
   sourceLanguageCode: string; targetLanguageCode: string;
@@ -20,7 +21,7 @@ export interface NmtGlossaryClient {
 export interface NmtGlossaryMetric {
   engine: "nmt-glossary"; direction: string; attempt: number; elapsedMs: number;
   inputCharacters: number; outputCharacters: number;
-  outcome: "success" | "quality_rejected" | "service_error"; reason?: string;
+  outcome: "success" | "quality_rejected" | "service_error"; reason?: string; apiCalled?: boolean | "unknown"; adapterVersion?: string; protectedCounts?: Record<string, number>;
 }
 export interface NmtGlossaryOptions {
   projectId: string; location: string; glossaryZhEn: string; glossaryEnZh: string;
@@ -39,6 +40,7 @@ export class NmtGlossaryTranslator implements Translator {
       if (!glossary.startsWith(this.parent + "/glossaries/") || !/^[A-Za-z0-9_-]+$/u.test(glossary.slice((this.parent + "/glossaries/").length))) throw new Error("Invalid NMT glossary glossary configuration.");
     }
   }
+  private metric(metric: NmtGlossaryMetric): void {try {this.options.onMetric?.(metric);} catch { /* Observability cannot change translation behavior. */ }}
   public async translate(text: string, source: string, target: string, context?: TranslationContext): Promise<string> {
     return (await this.translateWithRanges(text, source, target, context)).text;
   }
@@ -51,8 +53,19 @@ export class NmtGlossaryTranslator implements Translator {
       end = range.start + range.length;
     }
     const prepared = prepareLlmContext(text, this.options.protectedNames ?? DEFAULT_PROTECTED_NAMES, context?.protectedRanges, target);
+    const protectedCounts = Object.fromEntries([...new Set(prepared.protectedValues.map(item => item.kind))].map(kind => [kind, prepared.protectedValues.filter(item => item.kind === kind).length]));
+    const local = prepared.protectedValues.length ? null : resolveNmtLocalPhrase(text, source, target, context);
+    if (local) {
+      this.metric({engine: "nmt-glossary", direction: source + ":" + target, attempt: 0, elapsedMs: 0, inputCharacters: 0,
+        outputCharacters: [...local.text].length, outcome: "success", apiCalled: false, adapterVersion: NMT_GLOSSARY_ADAPTER_VERSION, protectedCounts});
+      return {text: local.text, ranges: []};
+    }
     const tokenPattern = new RegExp(prepared.prefix + "\\d+__", "gu");
-    if (!/\p{L}/u.test(prepared.text.replace(tokenPattern, ""))) return restoreTradeTranslationWithRanges(prepared, prepared.text);
+    if (!/\p{L}/u.test(prepared.text.replace(tokenPattern, ""))) {
+      const result = restoreTradeTranslationWithRanges(prepared, prepared.text);
+      this.metric({engine: "nmt-glossary", direction: source + ":" + target, attempt: 0, elapsedMs: 0, inputCharacters: 0, outputCharacters: [...result.text].length, outcome: "success", apiCalled: false, adapterVersion: NMT_GLOSSARY_ADAPTER_VERSION, protectedCounts});
+      return result;
+    }
     const quotePattern = /[“「"]([^”」"\r\n]+)[”」"]/gu;
     const quotes = source === "en" ? [...new Set([...prepared.text.matchAll(quotePattern)].map(match => match[1]!).filter(value => /[A-Za-z]/u.test(value.replace(tokenPattern, ""))))] : [];
     const escapeHtml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -97,7 +110,7 @@ export class NmtGlossaryTranslator implements Translator {
           mimeType: "text/html", sourceLanguageCode: source, targetLanguageCode: target,
           glossaryConfig: {glossary: source === "en" ? this.options.glossaryEnZh : this.options.glossaryZhEn, ignoreCase: false, contextualTranslationEnabled: false}}, {timeout: 15000, retry: {retryCodes: []}});
       } catch {
-        this.options.onMetric?.({engine: "nmt-glossary", direction: source + ":" + target, attempt, elapsedMs: Date.now() - started, inputCharacters, outputCharacters: 0, outcome: "service_error"});
+        this.metric({engine: "nmt-glossary", direction: source + ":" + target, attempt, elapsedMs: Date.now() - started, inputCharacters, outputCharacters: 0, outcome: "service_error", apiCalled: "unknown", adapterVersion: NMT_GLOSSARY_ADAPTER_VERSION, protectedCounts});
         throw new NmtGlossaryServiceError();
       }
       try {
@@ -139,12 +152,12 @@ export class NmtGlossaryTranslator implements Translator {
           result.text = spaced + original.slice(position);
           if (result.text.length > 4500) throw new TranslationQualityError("output_too_long");
         }
-        this.options.onMetric?.({engine: "nmt-glossary", direction: source + ":" + target, attempt, elapsedMs: Date.now() - started, inputCharacters, outputCharacters, outcome: "success"});
+        this.metric({engine: "nmt-glossary", direction: source + ":" + target, attempt, elapsedMs: Date.now() - started, inputCharacters, outputCharacters, outcome: "success", apiCalled: true, adapterVersion: NMT_GLOSSARY_ADAPTER_VERSION, protectedCounts});
         return result;
       } catch (error) {
         const failure = error instanceof TranslationQualityError ? error : new TranslationQualityError("invalid_response_format");
         const outputCharacters = Array.isArray(response?.glossaryTranslations) ? response.glossaryTranslations.reduce((sum, part) => sum + (typeof part?.translatedText === "string" ? [...part.translatedText].length : 0), 0) : 0;
-        this.options.onMetric?.({engine: "nmt-glossary", direction: source + ":" + target, attempt, elapsedMs: Date.now() - started, inputCharacters, outputCharacters, outcome: "quality_rejected", reason: failure.reason});
+        this.metric({engine: "nmt-glossary", direction: source + ":" + target, attempt, elapsedMs: Date.now() - started, inputCharacters, outputCharacters, outcome: "quality_rejected", reason: failure.reason, apiCalled: true, adapterVersion: NMT_GLOSSARY_ADAPTER_VERSION, protectedCounts});
         throw failure;
       }
     }

@@ -1,3 +1,5 @@
+import {FirestoreDevEventOperationStore} from "./dev-event-operation-store.js";
+import type {DevEventSession} from "./dev-event-operation.js";
 import {FirestoreTranslationQualityStore} from "./translation-quality-store.js";
 import {FirestoreTranslationFailureStore} from "./translation-failure-store.js";
 import {ControlledNmtClient, AuthenticatedNmtTransport} from "./nmt-controlled-client.js";
@@ -44,13 +46,13 @@ const firebaseApp = getApps()[0] ?? initializeApp();
 const translationFailureStore = new FirestoreTranslationFailureStore(getFirestore(firebaseApp));
 const conversationSettingsStore = new FirestoreConversationSettingsStore(getFirestore(firebaseApp));
 
-function controlledClient() {
+function controlledClient(session?: DevEventSession) {
   if (projectID.value() !== NMT_TEST_PROJECT || runtimeServiceAccount.value() !== NMT_RUNTIME_ACCOUNT) throw new Error("Isolated NMT runtime target mismatch");
   const transport = new AuthenticatedNmtTransport();
-  return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", () => transport.identity(), true);
+  return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", () => transport.identity(), true, session);
 }
 
-const getTranslationProgram = createTranslationProgramRouter(() => {
+const eventTranslationProgram = (session: DevEventSession) => createTranslationProgramRouter(() => {
   let aliases: MentionAlias[] = [];
   try { aliases = parseMentionAliases(mentionAliases.value()); } catch {
     logger.warn("LINE mention aliases are disabled because configuration is invalid.");
@@ -65,8 +67,17 @@ const getTranslationProgram = createTranslationProgramRouter(() => {
       protectedNames: protectedNames.value(),
       nmtGlossary: {location: "us-central1",
         glossaryZhEn: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.zhEn,
-        glossaryEnZh: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.enZh, client: controlledClient()},
-      onNmtMetric: metric => logger.info("NMT request completed.", {...metric}),
+        glossaryEnZh: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.enZh, client: controlledClient(session)},
+      onNmtMetric: metric => {
+        session.telemetry.adapterVersion = metric.adapterVersion ?? "nmt-glossary-v21";
+        session.telemetry.protectedCounts = metric.protectedCounts ?? {};
+        session.telemetry.protectionVersion = "literal-code-20260929";
+        session.duration("validation", Math.max(0, metric.elapsedMs - (session.telemetry.durations.identity ?? 0) - (session.telemetry.durations.ledger ?? 0) - (session.telemetry.durations.provider ?? 0)));
+        if (metric.reason) {session.telemetry.reason = metric.reason; session.telemetry.failureStage = "validation";}
+        // The client owns API certainty; a translator service error cannot imply a call.
+        if (metric.apiCalled === false) {session.telemetry.apiCalled = false; session.telemetry.outputCharacters = metric.outputCharacters;}
+        logger.info("NMT request completed.", {operationId: session.operationId, ...metric});
+      },
       translationLlm: {
         location: translationLlmLocation.value(),
         glossaryZhEn: "projects/" + projectID.value() + "/locations/" + translationLlmLocation.value() + "/glossaries/" + translationLlmGlossaryZhEn.value(),
@@ -77,7 +88,14 @@ const getTranslationProgram = createTranslationProgramRouter(() => {
     }),
     mentionAliases: aliases,
   };
-}, () => new VietnameseNmtTranslator(projectID.value(), controlledClient()));
+}, () => new VietnameseNmtTranslator(projectID.value(), controlledClient(session), metric => {
+  session.telemetry.adapterVersion = metric.adapterVersion;
+  session.telemetry.protectionVersion = "literal-code-20260929";
+  if (session.providerStatus === "not_started") session.telemetry.outputCharacters = metric.outputCharacters;
+  if (metric.outcome === "quality_rejected" && session.providerStatus === "provider_succeeded" && session.telemetry.failureStage !== "provider_completion") {session.telemetry.reason = "nmt_output_validation"; session.telemetry.failureStage = "validation";}
+  session.duration("validation", Math.max(0, metric.elapsedMs - (session.telemetry.durations.identity ?? 0) - (session.telemetry.durations.ledger ?? 0) - (session.telemetry.durations.provider ?? 0)));
+  logger.info("Vietnamese NMT request completed.", {operationId: session.operationId, ...metric});
+}));
 
 export const lineWebhook = onRequest(
   {
@@ -99,7 +117,8 @@ export const lineWebhook = onRequest(
       },
       {
         channelSecret: lineChannelSecret.value(),
-        getTranslationProgram,
+        eventOperationStore: new FirestoreDevEventOperationStore(getFirestore(firebaseApp), projectID.value(), process.env.K_REVISION ?? null),
+        createEventTranslationProgram: eventTranslationProgram,
         transcriber: new GoogleCloudSpeechTranscriber(projectID.value()),
         audioContentLoader: new LineMessagingApiContentLoader(
           lineChannelAccessToken.value(),
