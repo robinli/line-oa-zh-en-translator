@@ -1,11 +1,11 @@
 # Project defaults; an explicit task/UI override can take precedence.
-model = "gpt-6-astra"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 4
-default_subagent_model = "gpt-6-astra"
+default_subagent_model = "gpt-6.1-sol"
 default_subagent_reasoning_effort = "high"
 
 [agents.planner]
@@ -19,3 +19,15 @@ config_file = "agents/implementer.toml"
 [agents.verifier]
 description = "Independently verify a completed change and report actionable findings."
 config_file = "agents/verifier.toml"
+
+[agents.planner_xhigh]
+description = "Plan a particularly difficult or ambiguous change; opt-in xHigh."
+config_file = "agents/planner_xhigh.toml"
+
+[agents.implementer_xhigh]
+description = "Implement a difficult bounded work item when xHigh is explicitly selected."
+config_file = "agents/implementer_xhigh.toml"
+
+[agents.verifier_xhigh]
+description = "Verify demanding cross-module behavior or unresolved reasoning; opt-in xHigh."
+config_file = "agents/verifier_xhigh.toml"

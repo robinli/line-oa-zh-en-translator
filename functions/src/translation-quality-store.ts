@@ -13,11 +13,13 @@ export function qualityGroupName(id: string): string {return `群組 ${hash([id]
 export interface QualityGroup {id: string; name: string}
 export interface QualityConfig {enabled: true; groups: QualityGroup[]; startedAt: Date}
 export interface QualityOriginal {
+  operationId?: string;
   groupId: string; groupName: string; senderUserId: string | null;
   webhookEventId: string | null; messageId: string | null; messageType: string; quotedMessageId?: string | null;
   eventTime: Date; recordedAt: Date; sourceText: string | null;
 }
 export interface QualityCompletion {
+  operationId?: string;
   sourceText?: string | null; translatedText?: string | null; replyText?: string | null;
   translationMode?: string | null; sourceLanguageCode?: string | null; targetLanguageCode?: string | null;
   engine?: string | null; glossary?: string | null; revision?: string | null;
@@ -76,13 +78,13 @@ export function parseQualityConfig(value: unknown): QualityConfig | null {
 }
 // Allowlist projection deliberately excludes tokens, attachments, arbitrary errors and rejected outputs.
 function originalData(record: QualityOriginal): Record<string, unknown> {
-  return {schemaVersion: 1, groupId: record.groupId, groupName: record.groupName,
+  return {schemaVersion: 1, ...(record.operationId ? {operationId: record.operationId} : {}), groupId: record.groupId, groupName: record.groupName,
     senderUserId: record.senderUserId, webhookEventId: record.webhookEventId, messageId: record.messageId,
     quotedMessageId: record.quotedMessageId ?? null, messageType: record.messageType, eventTime: record.eventTime, recordedAt: record.recordedAt,
     sourceText: record.messageType === "text" ? record.sourceText : null};
 }
 function completionData(completion: QualityCompletion): Record<string, unknown> {
-  const data: Record<string, unknown> = {outcome: completion.outcome, deliveryStatus: completion.deliveryStatus, completedAt: completion.completedAt};
+  const data: Record<string, unknown> = {...(completion.operationId ? {operationId: completion.operationId} : {}), outcome: completion.outcome, deliveryStatus: completion.deliveryStatus, completedAt: completion.completedAt};
   for (const key of ["translatedText", "replyText", "translationMode", "sourceLanguageCode", "targetLanguageCode", "engine", "glossary", "revision", "reason"] as const) data[key] = completion[key] ?? null;
   return data;
 }

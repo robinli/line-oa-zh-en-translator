@@ -59,3 +59,14 @@ Firebase 參數 LINE_MENTION_ALIASES_JSON 是陣列，預設為 []。每筆包�
 ## 後續更新
 
 2026-09-22 已部署 linewebhook-00014-yez：翻譯失敗改為靜默略過；兩種稱呼與原生提及設定維持，正式參數及提及位置還原重試驗證通過。當前測試總數為 271 項。
+## 2026-10-01 DEV Wei 設定更新
+
+使用者提供 DEV provider 下的 Wei userId 並要求更新 DEV；LINE_MENTION_ALIASES_JSON 原為 []，本次加入 Wei bro、Wei brother 兩項，大小寫、空白及原生 mention 優先規則維持，單獨 Wei 不自動提及，發送前仍須確認對方是當前群組成員。
+
+以 Cloud Functions v2 PATCH 的 serviceConfig.environmentVariables 更新 line-auto-translate-bot-dev／lineWebhook，保留完整其他環境參數；未上傳工作區程式。Google 重建既有來源，部署前後來源 ZIP SHA-256 相同，映像及 revision 更新為 linewebhook-00009-vil；ACTIVE、Ready、LATEST 100% 已讀回確認，其他服務設定與 Secret 綁定均未改變。
+
+以現行部署的 mentions 模組完成六項離線正反案例，簽章空 events 回傳 HTTP 200；新增翻譯 API 0、真人訊息 0，手機顯示與通知仍待人工驗收。沒有修改正式區、群組設定、Secret 值、IAM 或累計帳本。
+
+真實 ID 僅存 Git 忽略的 `.local/nmt-worktree/functions/.env.line-auto-translate-bot-dev`、`.local/line-member-aliases-dev.json` 及 `.local/wei-dev-20261001/` 私密備份／驗證證據，不覆寫既有正式對應檔。來源、參數及流量證據見 `result.json`、before／after Function、Service、Revision、source ZIP 與 `smoke.json`；這些私密檔不加入 Git。
+
+本次是雲端設定更新，不修改應用或完整部署工具。現行 `prepare-dev-deploy.mjs` 與 `nmt-admin.mjs` 仍要求 LINE_MENTION_ALIASES_JSON=[]，更新後的私密 DEV dotenv 會使完整封裝／部署前檢查停止；下一次完整程式部署前須先支援並驗證已確認的 DEV 別名，再依原流程封裝，不能以清空別名或改寫既有凍結包來繞過。歷史部署包保留原狀，直接重用會還原為空別名。

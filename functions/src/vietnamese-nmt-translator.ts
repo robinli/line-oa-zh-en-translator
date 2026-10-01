@@ -35,7 +35,7 @@ function decodeTransportHtml(text: string): string {
 // This module has no trade policy, model prompt, terminology checks or person-name list.
 export class VietnameseNmtTranslator implements Translator {
   private client: NmtClient | undefined;
-  public constructor(private readonly projectId: string, client?: NmtClient) {
+  public constructor(private readonly projectId: string, client?: NmtClient, private readonly onMetric?: (metric: {elapsedMs: number; outcome: "success" | "quality_rejected"; outputCharacters: number; adapterVersion: string}) => void) {
     if (!/^[a-z][a-z0-9-]{4,62}$/u.test(projectId)) throw new Error("Invalid NMT project.");
     this.client = client;
   }
@@ -44,6 +44,13 @@ export class VietnameseNmtTranslator implements Translator {
     return (await this.translateWithRanges(text, source, target, context)).text;
   }
   public async translateWithRanges(text: string, source: string, target: string,
+    context?: TranslationContext): Promise<{text: string; ranges: RestoredTextRange[]}> {
+    const start = Date.now();
+    let result: {text: string; ranges: RestoredTextRange[]} | undefined;
+    try {result = await this.translateCore(text, source, target, context); return result;}
+    finally {try {this.onMetric?.({elapsedMs: Date.now() - start, outcome: result ? "success" : "quality_rejected", outputCharacters: result ? [...result.text].length : 0, adapterVersion: "vietnamese-nmt-literal-20260929"});} catch { /* Advisory telemetry only. */ }}
+  }
+  private async translateCore(text: string, source: string, target: string,
     context?: TranslationContext): Promise<{text: string; ranges: RestoredTextRange[]}> {
     if (!((source === "zh-TW" && target === "vi") || (source === "vi" && target === "zh-TW"))) {
       throw new Error("Vietnamese program only supports Chinese and Vietnamese.");

@@ -26,3 +26,22 @@ test('summary separates translation, delivery and incomplete records',()=>{
  const result=summarize([{...base,outcome:'translated',deliveryStatus:'failed',completedAt:'yes'},{...base,outcome:'skipped',completedAt:'yes'},{...base,outcome:'failed'},{...base,groupId:'other',outcome:'ignored',completedAt:'yes'}],[{}],{available:false,failedWriteAttempts:null});
  assert.equal(result.byGroupAndDay[0].day,'2026-09-25');assert.deepEqual(result.byGroupAndDay[0],{day:'2026-09-25',groupId:'synthetic',received:3,translated:1,skipped:1,failed:1,deliveryFailed:1,incomplete:1});assert.equal(result.storageDiagnostics.failedWriteAttempts,null);assert.equal(result.messageCount,4);
 });
+
+// New operation reconciliation remains independent of message recording and never guesses old costs.
+test('operation reconciliation preserves unknown started states and unlinked history', async () => {
+ const {summarizeOperations}=await import('./export-translation-quality.mjs');
+ const result=summarizeOperations([
+  {operationId:'one',claimedAt:'2026-09-30T01:00:00Z',providerStatus:'provider_succeeded',deliveryStatus:'sent',telemetry:{apiCalled:true,reservedCharacters:10,wireCharacters:10,outputCharacters:4}},
+  {operationId:'two',claimedAt:'2026-09-30T01:00:00Z',providerStatus:'provider_started',deliveryStatus:'delivery_started',telemetry:{apiCalled:'unknown',reservedCharacters:12,wireCharacters:12}},
+  {operationId:'three',claimedAt:'2026-09-30T01:00:00Z',providerStatus:'not_started',deliveryStatus:'not_attempted',telemetry:{apiCalled:false,reservedCharacters:0,wireCharacters:0}}
+ ],[{operationId:'one'},{sourceText:'historical'},{operationId:'missing'}]);
+ assert.equal(result.operationCount,3);assert.equal(result.historicalUnknown,1);assert.equal(result.qualityRowsLinked,1);assert.equal(result.unmatchedOperationReferences,1);
+ assert.deepEqual(result.byDay[0],{period:'2026-09-30',operations:3,apiCalledTrue:1,apiCalledFalse:1,apiCalledUnknown:1,reservedCharacters:22,knownWireCharacters:10,unknownWireCharacters:12,outputCharacters:4,deliveryUnknown:1});
+ assert.equal(result.byMonth[0].period,'2026-09');
+});
+
+test('known provider response remains known when provider completion persistence failed', async () => {
+ const {summarizeOperations}=await import('./export-translation-quality.mjs');
+ const result=summarizeOperations([{operationId:'known-return',claimedAt:'2026-09-30T01:00:00Z',providerStatus:'provider_started',deliveryStatus:'sent',telemetry:{apiCalled:true,reservedCharacters:10,wireCharacters:10,outputCharacters:4,failureStage:'provider_completion'}}]);
+ assert.equal(result.byDay[0].apiCalledTrue,1);assert.equal(result.byDay[0].apiCalledUnknown,0);assert.equal(result.byDay[0].knownWireCharacters,10);assert.equal(result.byDay[0].outputCharacters,4);
+});

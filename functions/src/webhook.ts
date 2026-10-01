@@ -1,3 +1,5 @@
+import {TranslationQualityError} from "./trade-policy.js";
+import type {DevEventOperationStore, DevEventSession} from "./dev-event-operation.js";
 import {createHash} from "node:crypto";
 import {captureQualityOriginal, qualityOperation, traceQualityDependencies, type QualityTrace} from "./translation-quality.js";
 import {processTranslationReport, REPORT_COMMAND} from "./translation-report.js";
@@ -88,6 +90,9 @@ export interface WebhookLogger {
 }
 
 export interface WebhookDependencies {
+  eventOperationStore?: DevEventOperationStore;
+  eventSession?: DevEventSession;
+  createEventTranslationProgram?: (session: DevEventSession) => (mode: TranslationMode) => TranslationProgram;
   qualityStore?: TranslationQualityStore;
   qualityTrace?: QualityTrace;
   qualityMetadata?: (mode: TranslationMode, sourceLanguageCode?: string) => {engine: string; glossary: string | null; revision: string | null};
@@ -159,14 +164,56 @@ export async function processLineWebhook(
   let processed = 0;
   let failed = 0;
 
-  const qualityConfig = dependencies.qualityStore ? await qualityOperation(() => dependencies.qualityStore!.getConfig(), dependencies) : null;
+  let qualityConfig: Awaited<ReturnType<TranslationQualityStore["getConfig"]>> | undefined;
+  let qualityConfigRead = false;
   for (const event of webhookBody.events) {
+    let session: DevEventSession | undefined;
+    const eventStarted = Date.now();
+    if (dependencies.eventOperationStore) {
+      try {
+        session = (await dependencies.eventOperationStore.claim(event)) ?? undefined;
+        if (!session) {ignored++; continue;}
+      } catch {
+        failed++;
+        dependencies.logger.error("DEV event claim unavailable.", {reason: "operation_claim_error"});
+        continue;
+      }
+    }
+    const captureStarted = Date.now();
+    session?.duration("claim", captureStarted - eventStarted);
+    // Claim precedes quality capture, commands, settings, transcription and replies.
+    if (!qualityConfigRead) {
+      qualityConfig = dependencies.qualityStore ? await qualityOperation(() => dependencies.qualityStore!.getConfig(), dependencies) ?? null : null;
+      qualityConfigRead = true;
+    }
     const recordingCommand = isGroupTextMessageEvent(event) && RECORDING_COMMANDS.includes(event.message.text.trim());
     const candidate = qualityConfig && !recordingCommand ? captureQualityOriginal(event, qualityConfig, new Date(), groupId => dependencies.logger.error("Translation quality event has no stable ID.", {reason: "quality_event_id_missing", groupKey: createHash("sha256").update(groupId).digest("hex")})) : null;
     const recordingEnabled = candidate ? await qualityOperation(() => dependencies.qualityStore!.getRecordingEnabled(candidate.groupId), dependencies, candidate.webhookEventId ?? undefined) : false;
     const original = recordingEnabled === true ? candidate : null;
-    const trace: QualityTrace = {outcome: "ignored", deliveryStatus: "not_attempted", completedAt: new Date()};
-    const eventDependencies = original ? traceQualityDependencies(dependencies, trace) : dependencies;
+    if (original && session) original.operationId = session.operationId;
+    const trace: QualityTrace = {outcome: "ignored", deliveryStatus: "not_attempted", completedAt: new Date(), ...(session ? {operationId: session.operationId} : {})};
+    let eventDependencies = original || session ? traceQualityDependencies(dependencies, trace) : dependencies;
+    if (session) {
+      session.duration("settings_capture", Date.now() - captureStarted);
+      const captured = eventDependencies;
+      const eventSession = session;
+      eventDependencies = {...captured, eventSession,
+        ...(dependencies.createEventTranslationProgram ? {getTranslationProgram: dependencies.createEventTranslationProgram(eventSession)} : {}),
+        settingsStore: {
+          getSettings: id => eventSession.timed("settings", () => captured.settingsStore.getSettings(id)),
+          setModeAndEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setModeAndEnabled(...args)),
+          setTextTranslationEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setTextTranslationEnabled(...args)),
+          setAudioTranscriptionEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setAudioTranscriptionEnabled(...args)),
+        },
+        replier: {replyText: async (token, text, context) => {
+          const translationStatus = trace.outcome === "translated" ? "validated" : trace.outcome === "failed" ?
+            eventSession.providerStatus === "provider_succeeded" && eventSession.telemetry.failureStage !== "provider_completion" ? "quality_rejected" : "service_error" : "skipped";
+          if (trace.reason && !eventSession.telemetry.reason) eventSession.telemetry.reason = trace.reason;
+          await eventSession.translation(translationStatus);
+          await eventSession.deliver(() => context ? captured.replier.replyText(token, text, context) : captured.replier.replyText(token, text));
+        }},
+      };
+    }
     const failedBefore = failed;
     if (original) dependencies.logger.info("Translation quality event received.", {reason: "quality_received", groupKey: createHash("sha256").update(original.groupId).digest("hex"), webhookEventId: original.webhookEventId, messageId: original.messageId});
     if (original) await qualityOperation(() => eventDependencies.qualityStore!.saveOriginal(original), eventDependencies, original.webhookEventId ?? undefined);
@@ -197,7 +244,7 @@ export async function processLineWebhook(
       let reply: string | null | undefined;
       let knownActiveReport = false;
       const explicitReportControl = [REPORT_COMMAND, "/返回", "/取消", "確認", "下一頁", "下一段"].includes(event.message.text.trim());
-      if (qualityConfig) reply = await qualityOperation(() => processTranslationReport(event, eventDependencies.ownerUserId, eventDependencies.qualityStore!, qualityConfig, new Date(), () => {knownActiveReport = true;}), eventDependencies, event.webhookEventId);
+      if (qualityConfig) reply = await qualityOperation(() => processTranslationReport(event, eventDependencies.ownerUserId, eventDependencies.qualityStore!, qualityConfig!, new Date(), () => {knownActiveReport = true;}), eventDependencies, event.webhookEventId);
       if (reply === undefined && qualityConfig && (explicitReportControl || knownActiveReport)) reply = "目前無法確認回報操作結果，請稍後重試；重複確認不會重複建案。";
       if (!qualityConfig && event.message.text.trim() === REPORT_COMMAND) reply = "翻譯錯誤回報目前無法使用，請稍後再試。";
       if (reply) {
@@ -274,6 +321,21 @@ export async function processLineWebhook(
       );
     }
     } finally {
+      if (session) {
+        if (trace.translationMode && dependencies.qualityMetadata) {
+          const metadata = dependencies.qualityMetadata(trace.translationMode as TranslationMode, trace.sourceLanguageCode ?? undefined);
+          session.telemetry.engine ??= metadata.engine;
+          session.telemetry.glossary ??= metadata.glossary;
+          session.telemetry.revision ??= metadata.revision;
+        }
+        session.telemetry.sourceLanguageCode ??= trace.sourceLanguageCode ?? null;
+        session.telemetry.targetLanguageCode ??= trace.targetLanguageCode ?? null;
+        session.telemetry.reason ??= trace.reason ?? null;
+        try {
+          if (session.translationStatus === "pending") await session.translation(failed > failedBefore ? "service_error" : "skipped");
+          await session.complete();
+        } catch {dependencies.logger.error("DEV event completion unavailable.", {reason: "operation_completion_error", operationId: session.operationId});}
+      }
       if (original) {
         if (failed > failedBefore && trace.deliveryStatus !== "failed") {trace.outcome = "failed"; trace.reason ??= "event_processing_error";}
         trace.completedAt = new Date();
@@ -320,6 +382,7 @@ async function processGroupAudioMessage(
     stage = "transcription";
     const transcription = await dependencies.transcriber.transcribe(audioContent, getSpeechLanguageCodes(settings.translationMode));
     sourceText = transcription.text;
+    if (dependencies.eventSession) dependencies.eventSession.telemetry.sourceCharacters = [...sourceText].length;
     if (dependencies.qualityTrace) dependencies.qualityTrace.sourceText = sourceText;
     if (!sourceText.trim()) throw new Error("Empty transcript");
     languagePair = settings.textTranslationEnabled ? getTextLanguagePair(sourceText, settings.translationMode) : undefined;
@@ -329,6 +392,7 @@ async function processGroupAudioMessage(
     let acceptedTranslation: string | null = null;
     if (languagePair) {
       stage = "translation_setup";
+      if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair);
       const {translator} = resolveTranslationProgram(dependencies, settings.translationMode);
       stage = "translation";
       const translatedText = await translator.translate(sourceText, languagePair.sourceLanguageCode, languagePair.targetLanguageCode);
@@ -452,6 +516,7 @@ async function processGroupTextMessage(
   let translatedMentions: UserMention[] = [];
   let stage: FailureStage = "translation_setup";
   try {
+    if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair);
     const {translator, mentionAliases} = resolveTranslationProgram(dependencies, settings.translationMode);
     const translationArgs: [string, string, string, TranslationContext?] = [
       text, languagePair.sourceLanguageCode, languagePair.targetLanguageCode,
@@ -510,6 +575,15 @@ async function reportTranslationFailure(
   dependencies: WebhookDependencies,
 ): Promise<"failed"> {
   const reason = failureReason(error, stage);
+  if (dependencies.eventSession) {
+    if (error instanceof TranslationQualityError) {
+      dependencies.eventSession.telemetry.reason = error.reason;
+      dependencies.eventSession.telemetry.failureStage = "validation";
+    } else {
+      dependencies.eventSession.telemetry.reason ??= reason;
+      dependencies.eventSession.telemetry.failureStage ??= stage;
+    }
+  }
   if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair, {outcome: "failed", reason, translatedText: null});
   const record: TranslationFailureRecord = {
     groupId: event.source.groupId, webhookEventId: event.webhookEventId,

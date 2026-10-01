@@ -1,3 +1,4 @@
+import type {DevEventSession} from "./dev-event-operation.js";
 import {nmtFailure, nmtDiagnosticStep, type NmtFailureStage, type NmtFailureDiagnostic} from "./nmt-diagnostics.js";
 import {GoogleAuth} from "google-auth-library";
 import {countNmtCharacters, type BudgetStore, type NmtBudgetCategory} from "./nmt-budget.js";
@@ -7,7 +8,7 @@ export interface NmtCallOptions {timeout: number; retry: {retryCodes: number[]}}
 export interface NmtTransport {translateText(request: ControlledNmtRequest, options: NmtCallOptions): Promise<[NmtResponse, ...unknown[]]>}
 export class ControlledNmtClient implements NmtTransport {
   public constructor(private readonly transport: NmtTransport, private readonly budget: BudgetStore,
-    private readonly category: NmtBudgetCategory, private readonly identity: () => Promise<NmtIdentity>, private readonly runtime = false) {}
+    private readonly category: NmtBudgetCategory, private readonly identity: () => Promise<NmtIdentity>, private readonly runtime = false, private readonly session?: DevEventSession) {}
   public async translateText(request: ControlledNmtRequest, options: NmtCallOptions): Promise<[NmtResponse, ...unknown[]]> {
     let stage: NmtFailureStage = "request_validation";
     let reservation: NmtFailureDiagnostic["reservation"] = "not_started";
@@ -19,19 +20,38 @@ export class ControlledNmtClient implements NmtTransport {
       if (options.timeout !== 15000 || options.retry.retryCodes.length) throw new Error("NMT retry/timeout mismatch");
       const characters = countNmtCharacters(frozen.contents);
       if (characters <= 0 || characters > 30000) throw new Error("Invalid NMT input size");
+      this.session?.prepare(frozen);
       stage = "identity";
-      const identity = await this.identity();
+      const identity = await (this.session ? this.session.timed("identity", this.identity) : this.identity());
       stage = "identity.validation";
       assertNmtIdentity(identity, this.runtime);
       stage = "reservation";
       reservation = "not_confirmed";
-      await this.budget.reserve(this.category, characters);
+      if (this.session) await this.session.reserveProvider(this.category, characters);
+      else await this.budget.reserve(this.category, characters);
       reservation = "committed";
       stage = "provider";
       provider = "transport_started";
       // Reservation commits first. Every provider failure consumes budget, without retry or refund.
-      return await this.transport.translateText(frozen, {timeout: 15000, retry: {retryCodes: []}});
-    } catch (error) {throw nmtFailure(error, stage, {reservation, provider});}
+      const send = () => this.transport.translateText(frozen, {timeout: 15000, retry: {retryCodes: []}});
+      const result = await (this.session ? this.session.timed("provider", send) : send());
+      const response = result[0];
+      stage = "provider_completion";
+      if (this.session) await this.session.providerFinished([...(Array.isArray(response?.translations) ? response.translations : []), ...(Array.isArray(response?.glossaryTranslations) ? response.glossaryTranslations : [])].reduce((sum, item) => sum + (typeof item?.translatedText === "string" ? [...item.translatedText].length : 0), 0));
+      return result;
+    } catch (error) {
+      const failure = nmtFailure(error, stage, {reservation, provider});
+      if (this.session) {
+        this.session.telemetry.failureStage = failure.diagnostic.stage;
+        this.session.telemetry.reason = String(failure.diagnostic.code ?? failure.diagnostic.category);
+        if (stage === "provider_completion") {
+          // A persistence failure cannot erase a response that the external provider already returned.
+          this.session.telemetry.apiCalled = true;
+          this.session.telemetry.reason = "operation_store_error";
+        } else if (provider === "transport_started") try {if (stage === "provider" && failure.diagnostic.httpStatus) await this.session.providerServiceError(); else await this.session.providerUnknown();} catch { /* Started is durable and remains unknown. */ }
+      }
+      throw failure;
+    }
   }
 }
 export class AuthenticatedNmtTransport implements NmtTransport {

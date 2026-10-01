@@ -23,6 +23,7 @@
     "test:nmt-ledger": "node scripts/test-nmt-ledger-emulator.mjs",
     "evaluate:nmt": "node scripts/evaluate-nmt.mjs",
     "replay:nmt": "node scripts/replay-nmt.mjs",
+    "test:dev-event-operations": "node scripts/test-dev-event-operation-emulator.mjs",
     "test:nmt-tracking-ledger": "node scripts/test-nmt-tracking-emulator.mjs",
     "test:failure-store": "node scripts/test-translation-failure-store.mjs",
     "export:quality": "node scripts/export-translation-quality.mjs",

@@ -1,0 +1,44 @@
+[
+  {
+    "sourceLanguageCode": "zh-TW",
+    "source": "請核對海關稅則號碼。",
+    "targetLanguageCode": "en",
+    "rubric": "明確 tariff code，不是稅費金額",
+    "id": "TERM-01"
+  },
+  {
+    "sourceLanguageCode": "zh-TW",
+    "source": "政府公布了新的海關稅則。",
+    "targetLanguageCode": "en",
+    "rubric": "整套關稅表或制度，不能憑空縮成單一分類代碼",
+    "id": "TERM-02"
+  },
+  {
+    "sourceLanguageCode": "zh-TW",
+    "source": "請核對稅則編號與納稅人識別號。",
+    "targetLanguageCode": "en",
+    "rubric": "tariff code 與 taxpayer ID 分開",
+    "id": "TERM-03"
+  },
+  {
+    "sourceLanguageCode": "zh-TW",
+    "source": "進口關稅調降，但商品的海關稅號未變。",
+    "targetLanguageCode": "en",
+    "rubric": "稅率／稅費與海關代碼不混淆",
+    "id": "TERM-04"
+  },
+  {
+    "id": "TERM-05",
+    "source": "我會深入詢問AI，也會直接問 AI 哪種方案可行。",
+    "sourceLanguageCode": "zh-TW",
+    "targetLanguageCode": "en",
+    "rubric": "保留向 AI 提問動作；長短詞組及空白形式皆不得殘留詢或重複 ask"
+  },
+  {
+    "id": "TERM-06",
+    "source": "我們正在深入研究 AI，並非向 AI 提問。",
+    "sourceLanguageCode": "zh-TW",
+    "targetLanguageCode": "en",
+    "rubric": "研究 AI 與向 AI 提問不同；不得新增肯定提問動作"
+  }
+]

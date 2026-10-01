@@ -1,3 +1,4 @@
+import {checkConfirmationCore} from "./nmt-confirmation-relations.js";
 import type {PreparedLlmContext} from "./nmt-context.js";
 import {TranslationQualityError} from "./trade-policy.js";
 const escape = (value: string) => value.replace(/[.*+?^$()|[\]\\{}]/gu, "\\$&");
@@ -6,6 +7,10 @@ const fail = (reason: string): never => {throw new TranslationQualityError(reaso
 export function validateNmtTradeRelations(prepared: PreparedLlmContext, result: string): void {
   const source = prepared.original;
   if (prepared.targetLanguage === "zh-TW") {
+    const confirmation = checkConfirmationCore(source, result);
+    if (confirmation.status === "violation") fail(confirmation.reasons[0]!);
+    // The bounded core has no fee/coverage authority. Always apply the verified
+    // terminal-coverage policy, including its documented existing limitations.
     const outsideQuote = source.replace(/[“「"][^”」"\r\n]+[”」"]/gu, "");
     const unknownCoverage = [...outsideQuote.matchAll(/\bconfirm what it covers(?=[.!?]|$)/giu)];
     if (unknownCoverage.length) {

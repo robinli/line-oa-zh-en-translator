@@ -1,4 +1,4 @@
-export type NmtFailureStage = "request_validation" | "identity" | "identity.credentials" | "identity.token_info" | "identity.billing" | "identity.runtime_account" | "identity.project" | "identity.validation" | "reservation" | "provider.credentials" | "provider";
+export type NmtFailureStage = "request_validation" | "identity" | "identity.credentials" | "identity.token_info" | "identity.billing" | "identity.runtime_account" | "identity.project" | "identity.validation" | "reservation" | "provider.credentials" | "provider" | "provider_completion";
 export interface NmtFailureDiagnostic {
  stage: NmtFailureStage; category: "authentication" | "permission" | "timeout" | "unavailable" | "budget" | "guard" | "unknown";
  code?: string | number; httpStatus?: number;
