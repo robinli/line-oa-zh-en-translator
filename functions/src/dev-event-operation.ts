@@ -1,5 +1,6 @@
 import {createHash, randomUUID} from "node:crypto";
 import type {NmtBudgetCategory} from "./nmt-budget.js";
+import type {NmtRequestProfile} from "./nmt-request-profile.js";
 import type {ControlledNmtRequest} from "./nmt-isolation.js";
 
 export const DEV_OPERATIONS_COLLECTION = "lineDevEventOperations";
@@ -8,6 +9,7 @@ export type ProviderStatus = "not_started" | "provider_started" | "provider_succ
 export type DeliveryStatus = "not_attempted" | "delivery_started" | "sent" | "delivery_unknown";
 export interface OperationTelemetry {
   origin: "runtime"; revision: string | null; adapterVersion: string | null; protectionVersion: string | null; pricingVersion: string;
+  requestProfile?: string | null; validationScope?: "literal-integrity" | null; semanticEvaluation?: "not_evaluated" | null;
   engine: string | null; sourceLanguageCode: string | null; targetLanguageCode: string | null; glossary: string | null;
   apiCalled: boolean | "unknown"; sourceCharacters: number; reservedCharacters: number; wireCharacters: number;
   primaryTextWire: number; primaryMarkup: number; auxiliaryWire: number; outputCharacters: number;
@@ -41,6 +43,7 @@ export function initialOperation(event: unknown, revision: string | null = null)
   return {schemaVersion: 1, version: DEV_OPERATION_VERSION, ...identity, ownerAttempt: randomUUID(), fence: 1,
     claimedAt: now, updatedAt: now, completedAt: null, providerStatus: "not_started", translationStatus: "pending", deliveryStatus: "not_attempted",
     telemetry: {origin: "runtime", revision, adapterVersion: null, protectionVersion: null, pricingVersion: "google-nmt-usd20-per-million-20260930",
+      requestProfile: null, validationScope: null, semanticEvaluation: null,
       engine: null, sourceLanguageCode: null, targetLanguageCode: null, glossary: null, apiCalled: false,
       sourceCharacters, reservedCharacters: 0, wireCharacters: 0, primaryTextWire: 0, primaryMarkup: 0, auxiliaryWire: 0, outputCharacters: 0,
       protectedCounts: {}, reason: null, failureStage: null, durations: {}}};
@@ -52,7 +55,9 @@ export function operationData(record: DevEventOperation): DevEventOperation {
   const t = record.telemetry;
   return {schemaVersion, version, operationId, groupKey, deduplication, ownerAttempt, fence, claimedAt, updatedAt, completedAt,
     providerStatus, translationStatus, deliveryStatus, telemetry: {origin: t.origin, revision: t.revision, adapterVersion: t.adapterVersion,
-      protectionVersion: t.protectionVersion, pricingVersion: t.pricingVersion, engine: t.engine, sourceLanguageCode: t.sourceLanguageCode,
+      protectionVersion: t.protectionVersion, pricingVersion: t.pricingVersion, requestProfile: t.requestProfile ?? null,
+      validationScope: t.validationScope === "literal-integrity" ? t.validationScope : null,
+      semanticEvaluation: t.semanticEvaluation === "not_evaluated" ? t.semanticEvaluation : null, engine: t.engine, sourceLanguageCode: t.sourceLanguageCode,
       targetLanguageCode: t.targetLanguageCode, glossary: t.glossary, apiCalled: t.apiCalled, sourceCharacters: t.sourceCharacters,
       reservedCharacters: t.reservedCharacters, wireCharacters: t.wireCharacters, primaryTextWire: t.primaryTextWire,
       primaryMarkup: t.primaryMarkup, auxiliaryWire: t.auxiliaryWire, outputCharacters: t.outputCharacters, protectedCounts: {...t.protectedCounts}, reason: t.reason,
@@ -71,13 +76,15 @@ export class DevEventSession {
   public get operationId(): string {return this.owner.operationId;}
   public duration(stage: string, elapsed: number): void {this.telemetry.durations[stage] = (this.telemetry.durations[stage] ?? 0) + Math.max(0, elapsed);}
   public async timed<T>(stage: string, run: () => Promise<T>): Promise<T> {const start = Date.now(); try {return await run();} finally {this.duration(stage, Date.now() - start);}}
-  public prepare(request: ControlledNmtRequest): void {
-    const contents = request.contents, primary = request.glossaryConfig ? contents[0] ?? "" : contents.join("");
+  public prepare(request: ControlledNmtRequest, profile: NmtRequestProfile = "legacy-glossary"): void {
+    const direct = profile !== "legacy-glossary" && request.sourceLanguageCode !== "vi" && request.targetLanguageCode !== "vi";
+    const contents = request.contents, primary = !direct && request.glossaryConfig ? contents[0] ?? "" : contents.join("");
     const markup = request.mimeType === "text/html" ? [...primary.matchAll(/<[^>]*>/gu)].reduce((sum, item) => sum + [...item[0]].length, 0) : 0;
-    Object.assign(this.telemetry, {engine: request.glossaryConfig ? "nmt-glossary" : "general/nmt", sourceLanguageCode: request.sourceLanguageCode,
+    Object.assign(this.telemetry, {requestProfile: direct ? profile : request.sourceLanguageCode === "vi" || request.targetLanguageCode === "vi" ? "vietnamese-nmt-literal" : profile,
+      engine: direct ? "nmt-direct" : request.glossaryConfig ? "nmt-glossary" : "general/nmt", sourceLanguageCode: request.sourceLanguageCode,
       targetLanguageCode: request.targetLanguageCode, glossary: request.glossaryConfig?.glossary ?? null,
       wireCharacters: contents.reduce((sum, item) => sum + [...item].length, 0), primaryTextWire: [...primary].length - markup,
-      primaryMarkup: markup, auxiliaryWire: request.glossaryConfig ? contents.slice(1).reduce((sum, item) => sum + [...item].length, 0) : 0});
+      primaryMarkup: markup, auxiliaryWire: !direct && request.glossaryConfig ? contents.slice(1).reduce((sum, item) => sum + [...item].length, 0) : 0});
   }
   public async reserveProvider(category: NmtBudgetCategory, characters: number): Promise<void> {
     const next = {...this.telemetry, reservedCharacters: characters, apiCalled: "unknown" as const};

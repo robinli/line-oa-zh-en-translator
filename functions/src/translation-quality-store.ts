@@ -23,6 +23,8 @@ export interface QualityCompletion {
   sourceText?: string | null; translatedText?: string | null; replyText?: string | null;
   translationMode?: string | null; sourceLanguageCode?: string | null; targetLanguageCode?: string | null;
   engine?: string | null; glossary?: string | null; revision?: string | null;
+  adapterVersion?: string | null; protectionVersion?: string | null; requestProfile?: string | null;
+  validationScope?: "literal-integrity" | null; semanticEvaluation?: "not_evaluated" | null;
   outcome: string; deliveryStatus: "not_attempted" | "sent" | "failed";
   reason?: string | null; completedAt: Date;
 }
@@ -85,7 +87,7 @@ function originalData(record: QualityOriginal): Record<string, unknown> {
 }
 function completionData(completion: QualityCompletion): Record<string, unknown> {
   const data: Record<string, unknown> = {...(completion.operationId ? {operationId: completion.operationId} : {}), outcome: completion.outcome, deliveryStatus: completion.deliveryStatus, completedAt: completion.completedAt};
-  for (const key of ["translatedText", "replyText", "translationMode", "sourceLanguageCode", "targetLanguageCode", "engine", "glossary", "revision", "reason"] as const) data[key] = completion[key] ?? null;
+  for (const key of ["translatedText", "replyText", "translationMode", "sourceLanguageCode", "targetLanguageCode", "engine", "glossary", "revision", "adapterVersion", "protectionVersion", "requestProfile", "validationScope", "semanticEvaluation", "reason"] as const) data[key] = completion[key] ?? null;
   return data;
 }
 export class FirestoreTranslationQualityStore implements TranslationQualityStore {

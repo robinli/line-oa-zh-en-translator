@@ -1,14 +1,15 @@
 import type {DevEventSession} from "./dev-event-operation.js";
+import {assertNmtProfileRequest, type NmtRequestProfile} from "./nmt-request-profile.js";
 import {nmtFailure, nmtDiagnosticStep, type NmtFailureStage, type NmtFailureDiagnostic} from "./nmt-diagnostics.js";
 import {GoogleAuth} from "google-auth-library";
 import {countNmtCharacters, type BudgetStore, type NmtBudgetCategory} from "./nmt-budget.js";
-import {assertNmtIdentity, assertNmtRequest, NMT_TEST_PROJECT, NMT_RUNTIME_ACCOUNT, type ControlledNmtRequest, type NmtIdentity} from "./nmt-isolation.js";
+import {assertNmtIdentity, NMT_TEST_PROJECT, NMT_RUNTIME_ACCOUNT, type ControlledNmtRequest, type NmtIdentity} from "./nmt-isolation.js";
 export interface NmtResponse {translations?: Array<{translatedText?: string | null}> | null; glossaryTranslations?: Array<{translatedText?: string | null}> | null}
 export interface NmtCallOptions {timeout: number; retry: {retryCodes: number[]}}
 export interface NmtTransport {translateText(request: ControlledNmtRequest, options: NmtCallOptions): Promise<[NmtResponse, ...unknown[]]>}
 export class ControlledNmtClient implements NmtTransport {
   public constructor(private readonly transport: NmtTransport, private readonly budget: BudgetStore,
-    private readonly category: NmtBudgetCategory, private readonly identity: () => Promise<NmtIdentity>, private readonly runtime = false, private readonly session?: DevEventSession) {}
+    private readonly category: NmtBudgetCategory, private readonly identity: () => Promise<NmtIdentity>, private readonly runtime = false, private readonly session?: DevEventSession, private readonly profile: NmtRequestProfile = "legacy-glossary") {}
   public async translateText(request: ControlledNmtRequest, options: NmtCallOptions): Promise<[NmtResponse, ...unknown[]]> {
     let stage: NmtFailureStage = "request_validation";
     let reservation: NmtFailureDiagnostic["reservation"] = "not_started";
@@ -16,11 +17,11 @@ export class ControlledNmtClient implements NmtTransport {
     try {
       // Snapshot caller input before asynchronous identity/reservation to prevent mutation after counting.
       const frozen = structuredClone(request);
-      assertNmtRequest(frozen);
+      assertNmtProfileRequest(frozen, this.profile);
       if (options.timeout !== 15000 || options.retry.retryCodes.length) throw new Error("NMT retry/timeout mismatch");
       const characters = countNmtCharacters(frozen.contents);
       if (characters <= 0 || characters > 30000) throw new Error("Invalid NMT input size");
-      this.session?.prepare(frozen);
+      this.session?.prepare(frozen, this.profile);
       stage = "identity";
       const identity = await (this.session ? this.session.timed("identity", this.identity) : this.identity());
       stage = "identity.validation";

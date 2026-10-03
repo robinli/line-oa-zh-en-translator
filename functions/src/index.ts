@@ -1,3 +1,4 @@
+import {resolveNmtRuntimeProfile, type NmtRequestProfile} from "./nmt-request-profile.js";
 import {FirestoreDevEventOperationStore} from "./dev-event-operation-store.js";
 import type {DevEventSession} from "./dev-event-operation.js";
 import {FirestoreTranslationQualityStore} from "./translation-quality-store.js";
@@ -33,6 +34,7 @@ const maxAudioBytes = defineInt("MAX_AUDIO_BYTES", {default: 10_000_000});
 const mentionAliases = defineString("LINE_MENTION_ALIASES_JSON", {default: "[]"});
 
 const translationEngine = defineString("TRANSLATION_ENGINE", {default: "business"});
+const nmtRequestProfile = defineString("NMT_REQUEST_PROFILE", {default: "legacy-glossary"});
 const translationModel = defineString("TRANSLATION_MODEL", {default: "gemini-3.5-flash"});
 const translationLocation = defineString("TRANSLATION_LOCATION", {default: "global"});
 const translationLlmLocation = defineString("TRANSLATION_LLM_LOCATION", {default: "us-central1"});
@@ -46,10 +48,10 @@ const firebaseApp = getApps()[0] ?? initializeApp();
 const translationFailureStore = new FirestoreTranslationFailureStore(getFirestore(firebaseApp));
 const conversationSettingsStore = new FirestoreConversationSettingsStore(getFirestore(firebaseApp));
 
-function controlledClient(session?: DevEventSession) {
+function controlledClient(session?: DevEventSession, profile: NmtRequestProfile = "legacy-glossary") {
   if (projectID.value() !== NMT_TEST_PROJECT || runtimeServiceAccount.value() !== NMT_RUNTIME_ACCOUNT) throw new Error("Isolated NMT runtime target mismatch");
   const transport = new AuthenticatedNmtTransport();
-  return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", () => transport.identity(), true, session);
+  return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", () => transport.identity(), true, session, profile);
 }
 
 const eventTranslationProgram = (session: DevEventSession) => createTranslationProgramRouter(() => {
@@ -57,7 +59,8 @@ const eventTranslationProgram = (session: DevEventSession) => createTranslationP
   try { aliases = parseMentionAliases(mentionAliases.value()); } catch {
     logger.warn("LINE mention aliases are disabled because configuration is invalid.");
   }
-  if (translationEngine.value() !== "nmt-glossary") throw new Error("Isolated test runtime requires nmt-glossary");
+  const profile = resolveNmtRuntimeProfile(translationEngine.value(), nmtRequestProfile.value());
+  const client = controlledClient(session, profile);
   return {
     translator: createTranslator({
       engine: translationEngine.value(),
@@ -67,7 +70,17 @@ const eventTranslationProgram = (session: DevEventSession) => createTranslationP
       protectedNames: protectedNames.value(),
       nmtGlossary: {location: "us-central1",
         glossaryZhEn: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.zhEn,
-        glossaryEnZh: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.enZh, client: controlledClient(session)},
+        glossaryEnZh: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.enZh, client},
+      ...(profile === "legacy-glossary" ? {} : {nmtDirect: {profile, client}}),
+      onNmtDirectMetric: metric => {
+        Object.assign(session.telemetry, {engine: metric.engine, adapterVersion: metric.adapterVersion,
+          protectionVersion: metric.protectionVersion, requestProfile: metric.profile,
+          validationScope: metric.validationScope, semanticEvaluation: metric.semanticEvaluation, protectedCounts: metric.protectedCounts});
+        session.duration("validation", Math.max(0, metric.elapsedMs - (session.telemetry.durations.identity ?? 0) - (session.telemetry.durations.ledger ?? 0) - (session.telemetry.durations.provider ?? 0)));
+        if (metric.reason) {session.telemetry.reason = metric.reason; session.telemetry.failureStage = "validation";}
+        if (metric.apiCalled === false) {session.telemetry.apiCalled = false; session.telemetry.outputCharacters = metric.outputCharacters;}
+        logger.info("NMT direct request completed.", {operationId: session.operationId, ...metric});
+      },
       onNmtMetric: metric => {
         session.telemetry.adapterVersion = metric.adapterVersion ?? "nmt-glossary-v21";
         session.telemetry.protectedCounts = metric.protectedCounts ?? {};
@@ -127,8 +140,8 @@ export const lineWebhook = onRequest(
         settingsStore: conversationSettingsStore,
         failureStore: translationFailureStore,
         qualityStore: projectID.value() === NMT_TEST_PROJECT ? new FirestoreTranslationQualityStore(getFirestore(firebaseApp), {projectId: projectID.value(), revision: process.env.K_REVISION}) : undefined,
-        qualityMetadata: (mode, source) => ({engine: mode === "zh-vi" ? "general/nmt" : "nmt-glossary",
-          glossary: mode === "zh-vi" || !source ? null : source === "zh-TW" ? NMT_GLOSSARIES.zhEn : NMT_GLOSSARIES.enZh,
+        qualityMetadata: (mode, source) => ({engine: mode === "zh-vi" ? "general/nmt" : translationEngine.value(),
+          glossary: mode === "zh-vi" || !source || translationEngine.value() === "nmt-direct" && nmtRequestProfile.value() === "nmt-direct-v1" ? null : source === "zh-TW" ? NMT_GLOSSARIES.zhEn : NMT_GLOSSARIES.enZh,
           revision: process.env.K_REVISION ?? null}),
         ownerUserId: lineOwnerUserId.value(),
         logger,

@@ -340,6 +340,9 @@ export async function processLineWebhook(
         if (failed > failedBefore && trace.deliveryStatus !== "failed") {trace.outcome = "failed"; trace.reason ??= "event_processing_error";}
         trace.completedAt = new Date();
         if (trace.translationMode && dependencies.qualityMetadata) Object.assign(trace, dependencies.qualityMetadata(trace.translationMode as TranslationMode, trace.sourceLanguageCode ?? undefined));
+        if (session) Object.assign(trace, {adapterVersion: session.telemetry.adapterVersion, protectionVersion: session.telemetry.protectionVersion,
+          requestProfile: session.telemetry.requestProfile ?? null, validationScope: session.telemetry.validationScope ?? null,
+          semanticEvaluation: session.telemetry.semanticEvaluation ?? null});
         const saved = await qualityOperation(async () => {await dependencies.qualityStore!.complete(original, trace); return true;}, dependencies, original.webhookEventId ?? undefined);
         if (saved) dependencies.logger.info("Translation quality capture completed.", {reason: "quality_capture", webhookEventId: original.webhookEventId, outcome: trace.outcome, deliveryStatus: trace.deliveryStatus});
       }

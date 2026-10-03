@@ -1,6 +1,6 @@
 # DEV 部署封裝工具
 
-> 2026-10-01：DEV 已加入 Wei bro／Wei brother 的私密 userId 對應，現行工具仍硬性要求空別名，因此新的 DEV dotenv 會被前檢查阻擋；下次完整部署須先修正並驗證別名設定契約，不可清空已確認對應或直接重用空別名的舊凍結包，詳 [DEV Wei 設定更新](LINE原生提及.md#2026-10-01-dev-wei-設定更新)。
+> 2026-10-01：依使用者要求，封裝忽略 Wei 別名更新，原樣保留指定 DEV dotenv 的現有設定；封裝與 `nmt-admin` 部署前檢查不再硬性要求空別名，不主動查詢、更新或清空人物對應，DEV 引擎／runtime、隔離與凍結檢查維持。歷史空別名包保留原狀，不能用它取代目前設定，詳 [DEV Wei 設定更新](LINE原生提及.md#2026-10-01-dev-wei-設定更新)。
 
 2026-09-26：`npm run prepare:dev` 統一建立隔離 DEV 部署包，取代從歷次 `.local/quality-*/prepare.ps1` 複製後臨時補檔的做法。本工具只準備及驗證本機檔案；執行成功不代表已部署、雲端身分已核對或手機驗收完成。
 
@@ -31,6 +31,7 @@ npm.cmd run prepare:dev -- --out=.local/dev-deploy/my-change --env-file=.local/n
 
 - 複製根目錄 `package.json`、`firebase.json`、`.firebaserc` 及 `scripts/check-local.ps1`，保留既有 DEV 身分及完整驗證 predeploy。
 - 複製 `functions/src`、`scripts`、`evaluation`、`glossaries`、`config`、package／lock／TypeScript／Vitest 設定，另外只複製明確指定的 DEV dotenv；本機入口與 `vitest.config.mts` 是必要且納入雜湊的檔案，包內 verify 同樣執行本機檢查工具測試，詳見 [本機離線檢查](本機離線檢查.md)。
+- 指定的 DEV dotenv 逐 byte 複製並納入 SHA-256；現有別名（含 Wei）不更新、不清空，也不因非空而阻擋。原生提及模組仍負責既有別名解析，真實 userId 不加入可提交檔案。
 - 在新包建置 `lib`；不沿用來源的舊 `lib`，也不複製正式或未限定專案的 dotenv。
 - 當前術語表資源紀錄複製到包內獨立 `.local/evidence`；測試不共用歷史 evidence 輸出，本次測試產生的包內 evidence 檔案亦納入最後的雜湊清單。`node_modules` 與隔離登入資料以本機 junction 連結，包不能視為可任意移機的獨立安裝品。
 - `dev-package.json` 保存狀態與檔案 SHA-256。驗證期間來源新增、刪除或內容變更即失敗；驗證後的來源、編譯檔、參數、啟動腳本與連結變更也會阻擋此包部署。依賴目錄的內容仍由 lockfile、既有安裝及測試保證，沒有逐檔鎖住 node_modules。
@@ -57,3 +58,27 @@ Firebase stdout／stderr 會進入包內 `deploy.log`，失敗保留原非零退
 Node 22 的實際隔離包已通過型別檢查、建置、1,539 項應用、45 項既有工具、5 項匯出與 12 項部署工具測試；一位 verifier 獨立複驗通過，含未宣告檔案／junction 阻擋、真管理入口與 Windows 啟動器在完全模擬依賴下的退出碼 23／0，沒有呼叫雲端。
 
 最終候選為 `.local/dev-deploy/tool-validation-20260926-correction-1-final/`，354 個檔案已凍結；完整結果、歷次失敗及獨立報告保留在 `.local/dev-deploy-tool-20260926/`。本次沒有執行部署、付費翻譯或真人訊息。
+
+## 2026-10-01 新主路徑的本機 profile 候選
+
+[新主路徑開發紀錄](NMT主路徑重設本機開發紀錄20261001.md) 所述封裝／管理入口已本機接入可信 request profile，尚未建立或部署此版本的實際 DEV 包。既有包與當前 runtime 繼續使用其凍結契約。
+
+| TRANSLATION_ENGINE | NMT_REQUEST_PROFILE | 詞表證據 |
+|---|---|---|
+| nmt-glossary | 缺省或 legacy-glossary | 舊 HTML／指定詞表 |
+| nmt-direct | nmt-direct-v1 | 無詞表，免讀詞表資源 |
+| nmt-direct | nmt-direct-glossary-v1 | 指定現有中英詞表 |
+
+[共用配置驗證](../functions/scripts/dev-request-profile.mjs) 拒絕重複受控鍵與不匹配引擎／profile；固定 DEV project、runtime、NMT 模型及 identity 控制保留。新 direct 包要求六個新編譯模組（包含 nmt-exact-directives.js），無詞表也要執行包內完整 verify、必要 predeploy 及 ledger／operations 歷史保護。別名仍逐 byte 保留，不主動重新核對人物。
+
+本次新增 profile、管理 hook、必要 compiled entry 與封裝離線 fixture 測試；工具 18 項通過。這些模擬證據不等於實際隔離包或雲端入口已通過，NMT 效果對照及有效部署授權仍是後續門檻。
+
+2026-10-02 使用者固定使用 NMT，Gemini 新候選撤回。plain profile 線上不查術語表，但完整離線驗證包含 archived glossary-contract 工具，因此所有 profile 封裝均須明確攜帶既有 glossary resource metadata 並凍結。缺少 metadata 於 preflight 即阻擋；這不啟用 plain runtime glossary。首包 FAILED 保留，修正後工具19項及隔離包完整 verify通過，423檔凍結；尚未部署，見 [固定 NMT 交付](NMT固定主路徑交付20261002.md)。
+
+最後獨立複驗已發現 copy-exact 同根因仍未收斂，達兩輪上限後停止修補；此主路徑候選不可交付或部署，以上只記錄本機實作範圍，未改現行 DEV。
+
+2026-10-02 明確宣告限縮版已完成有限 M1 本機交付，原自動推斷停止與兩輪紀錄保留；新的 directive 模組是必要包內 entry，完整離線最新 2,056 項應用／18 項部署工具通過，獨立引號 finding 未放行，不能直接部署。
+
+2026-10-02固定原文NMT套件nmt-only-20261002-final2已按新增明確部署授權經包內launcher及完整Firebase predeploy發布DEV：linewebhook-00010-xew，ACTIVE／100%；部署後423檔凍結、208個雲端來源檔及健康檢查通過。上文未部署與不可交付段落保留為各歷史候選結果，不適用已限縮並獨立驗證的此包；整體NMT品質仍未通過、手機驗收待完成。詳[交付及部署](NMT固定主路徑交付20261002.md)。
+
+2026-10-02 name-protection-20261002-final1已按再次明確部署授權完成發布：linewebhook-00011-wup／ACTIVE／100%，424檔凍結，完整包內及Firebase predeploy通過62檔／2,134應用與83工具；独立包驗證與208個雲端來源檔核對通過。此次實際--env-file採前一已部署凍結包nmt-only-20261002-final2/functions/.env.line-auto-translate-bot-dev，逐byte保留現行參數與別名；沒有修改文件範例的nmt-worktree來源。原真人驗收、double-check政策與整體語意品質仍待完成，詳[最新交付](NMT固定主路徑交付20261002.md)。

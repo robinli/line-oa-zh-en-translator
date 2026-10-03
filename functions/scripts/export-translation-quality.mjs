@@ -42,6 +42,16 @@ export function jsonValue(value) {
  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,jsonValue(v)]));
  return value;
 }
+export function summarizeValidation(records) {
+ const result={records:records.length,profiles:{},validationScopes:{'literal-integrity':0,unknown:0},semanticEvaluation:{not_evaluated:0,unknown:0}};
+ for(const row of records){const value=row.telemetry??row;
+  const profile=['legacy-glossary','nmt-direct-v1','nmt-direct-glossary-v1','vietnamese-nmt-literal'].includes(value.requestProfile)?value.requestProfile:'unknown';
+  result.profiles[profile]=(result.profiles[profile]??0)+1;
+  result.validationScopes[value.validationScope==='literal-integrity'?'literal-integrity':'unknown']++;
+  result.semanticEvaluation[value.semanticEvaluation==='not_evaluated'?'not_evaluated':'unknown']++;
+ }
+ return {...result,qualification:'Literal integrity is a limited validation scope; missing historical metadata is unknown. Translation or LINE success does not certify semantic correctness.'};
+}
 export function summarize(messages,cases,storageDiagnostics) {
  const days={};
  for(const row of messages){
@@ -50,7 +60,7 @@ export function summarize(messages,cases,storageDiagnostics) {
   const item=days[key]??={day,groupId:row.groupId,received:0,translated:0,skipped:0,failed:0,deliveryFailed:0,incomplete:0};
   item.received++;if(row.outcome==='translated')item.translated++;if(row.outcome==='skipped'||row.outcome==='ignored')item.skipped++;if(row.outcome==='failed')item.failed++;if(row.deliveryStatus==='failed')item.deliveryFailed++;if(!row.completedAt)item.incomplete++;
  }
- return {messageCount:messages.length,caseCount:cases.length,byGroupAndDay:Object.values(days),storageDiagnostics,completeness:'Compare stored rows with webhook logs; stored row counts alone cannot prove complete reception.'};
+ return {messageCount:messages.length,caseCount:cases.length,validation:summarizeValidation(messages),byGroupAndDay:Object.values(days),storageDiagnostics,completeness:'Compare stored rows with webhook logs; stored row counts alone cannot prove complete reception.'};
 }
 export function summarizeOperations(operations,messages=[]) {
  const days={},months={};
@@ -65,7 +75,7 @@ export function summarizeOperations(operations,messages=[]) {
   }
  }
  const ids=new Set(operations.map(row=>row.operationId));
- return {operationCount:operations.length,byDay:Object.values(days),byMonth:Object.values(months),qualityRowsLinked:messages.filter(row=>row.operationId&&ids.has(row.operationId)).length,historicalUnknown:messages.filter(row=>!row.operationId).length,unmatchedOperationReferences:messages.filter(row=>row.operationId&&!ids.has(row.operationId)).length,qualification:'Independent DEV operation records, including recording-off events. Reservations are not billing; started states without a recorded response are unknown; a recorded true call survives completion-phase write failure. Time window uses operation claim time.'};
+ return {operationCount:operations.length,validation:summarizeValidation(operations),byDay:Object.values(days),byMonth:Object.values(months),qualityRowsLinked:messages.filter(row=>row.operationId&&ids.has(row.operationId)).length,historicalUnknown:messages.filter(row=>!row.operationId).length,unmatchedOperationReferences:messages.filter(row=>row.operationId&&!ids.has(row.operationId)).length,qualification:'Independent DEV operation records, including recording-off events. Reservations are not billing; started states without a recorded response are unknown; a recorded true call survives completion-phase write failure. Time window uses operation claim time.'};
 }
 async function allPages(collection,field,start,end) {
  let cursor;const rows=[];
