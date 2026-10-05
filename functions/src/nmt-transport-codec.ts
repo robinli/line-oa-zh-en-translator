@@ -76,6 +76,16 @@ function repairRedundantNameCopies(manifest: LiteralManifest, bodies: readonly s
   return {bodies: adjustedBodies, placements: adjustedPlacements};
 }
 
+// Plain text has no protected occurrences. Align nonblank lines in order
+// and restore the original source layout; blank lines are presentation.
+function alignPlainParagraphs(manifest: LiteralManifest, translated: readonly string[]): string[] {
+  const blank = (text: string) => /^[\t\p{Zs}]*$/u.test(text);
+  const content = translated.filter(text => !blank(text));
+  const sourceCount = manifest.paragraphs.filter(paragraph => !blank(paragraph.text)).length;
+  if (content.length !== sourceCount) throw new TranslationQualityError("paragraph_structure_changed");
+  let cursor = 0;
+  return manifest.paragraphs.map(paragraph => blank(paragraph.text) ? paragraph.text : content[cursor++]!);
+}
 export function createNmtTransport(manifest: LiteralManifest) {
   const mimeType = manifest.occurrences.length ? "text/html" as const : "text/plain" as const;
   const html = manifest.paragraphs.map((paragraph, index) => {
@@ -98,7 +108,12 @@ export function createNmtTransport(manifest: LiteralManifest) {
     decode(response: string, present: (body: string) => string = value => value): {text: string; ranges: RestoredTextRange[]} {
       if (typeof response !== "string" || !response.trim() || response.length > 30000) throw new TranslationQualityError("invalid_response_format");
       if (mimeType === "text/plain") {
-        const paragraphs = literalParagraphs(response).map(paragraph => present(paragraph.text));
+        const displayed = literalParagraphs(response).map(paragraph => {
+          const text = present(paragraph.text);
+          if (separators.test(text)) throw new TranslationQualityError("paragraph_structure_changed");
+          return text;
+        });
+        const paragraphs = alignPlainParagraphs(manifest, displayed);
         assertLiteralIntegrity(manifest, paragraphs);
         const text = paragraphs.map((part, index) => part + manifest.paragraphs[index]!.separator).join("");
         if (text.length > 4500) throw new TranslationQualityError("output_too_long");
