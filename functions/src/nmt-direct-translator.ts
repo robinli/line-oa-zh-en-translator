@@ -7,7 +7,7 @@ import {assertNmtProfileRequest, type DirectNmtProfile} from "./nmt-request-prof
 import {NMT_TEST_PROJECT, NMT_GLOSSARIES} from "./nmt-isolation.js";
 import type {NmtTransport} from "./nmt-controlled-client.js";
 
-export const NMT_DIRECT_ADAPTER_VERSION = "nmt-direct-v1.2";
+export const NMT_DIRECT_ADAPTER_VERSION = "nmt-direct-v1.3";
 export interface NmtDirectMetric {
   engine: "nmt-direct"; profile: DirectNmtProfile; adapterVersion: string; protectionVersion: string;
   validationScope: "literal-integrity"; semanticEvaluation: "not_evaluated";
