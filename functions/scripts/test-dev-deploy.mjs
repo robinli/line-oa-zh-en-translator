@@ -7,6 +7,7 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {prepareDevPackage, validateDevPackage, DEV_PROJECT} from './prepare-dev-deploy.mjs';
 import {glossaryRecordFile} from './nmt-glossary-spec.mjs';
+import {devRuntimeConfiguration} from './dev-request-profile.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(resolve(tmpdir(), 'dev-package-test-'));
@@ -36,10 +37,9 @@ function fixture(t) {
 
 function compiled(plan) {
   mkdirSync(resolve(plan.output, 'functions/lib'));
-  for (const name of ['index.js', 'nmt-controlled-client.js', 'nmt-isolation.js']) writeFileSync(resolve(plan.output, 'functions/lib', name), '// built in isolated package\r\n');
+  for (const name of ['index.js', 'nmt-controlled-client.js', 'nmt-content-capture.js', 'nmt-isolation.js']) writeFileSync(resolve(plan.output, 'functions/lib', name), '// built in isolated package\r\n');
   writeFileSync(resolve(plan.output, '.local/evidence/test-stale-freeze.json'), '{"contractHash":"changed"}\r\n');
 }
-
 test('complete package contains root/config/glossary inputs and freshly built entries, without copying production or historical data', t => {
   const options = fixture(t); let calls = 0;
   const result = prepareDevPackage(options, {verify: plan => {calls++; compiled(plan);}});
@@ -56,6 +56,89 @@ test('complete package contains root/config/glossary inputs and freshly built en
   assert.match(launcher.toString('utf8'), /--validate-package/);
   assert.ok(readFileSync(resolve(stage, '.local/bin/npm.cmd'), 'utf8').includes(process.execPath));
   assert.throws(() => prepareDevPackage(options, {verify: compiled}), /already exists/);
+});
+
+test('packaging preserves existing mention aliases byte-for-byte and freezes their configuration', t => {
+  const options = fixture(t), name = 'functions/.env.' + DEV_PROJECT;
+  const original = readFileSync(resolve(options.root, name), 'utf8').replace('LINE_MENTION_ALIASES_JSON=[]',
+    'LINE_MENTION_ALIASES_JSON=' + JSON.stringify([
+      {alias: 'Wei bro', userId: 'U' + '1'.repeat(32)},
+      {alias: 'Wei brother', userId: 'U' + '1'.repeat(32)},
+    ]));
+  options.put(name, original);
+  const before = readFileSync(resolve(options.root, name));
+  const preflight = prepareDevPackage({...options, checkOnly: true}, {verify: () => assert.fail('must not run')});
+  assert.equal(preflight.status, 'preflight-passed');
+  assert.equal(existsSync(preflight.output), false);
+  const stage = prepareDevPackage(options, {verify: compiled}).output;
+  assert.deepEqual(readFileSync(resolve(options.root, name)), before);
+  assert.deepEqual(readFileSync(resolve(stage, name)), before);
+  assert.equal(validateDevPackage(stage).status, 'verified');
+  writeFileSync(resolve(stage, name), original.replace('"Wei bro"', '"Changed alias"'));
+  assert.throws(() => validateDevPackage(stage), /changed after verification/);
+});
+
+test('changes to source mention configuration during verification invalidate the package', t => {
+  const options = fixture(t), name = 'functions/.env.' + DEV_PROJECT;
+  assert.throws(() => prepareDevPackage(options, {verify: plan => {
+    compiled(plan);
+    options.put(name, readFileSync(resolve(options.root, name), 'utf8').replace('LINE_MENTION_ALIASES_JSON=[]',
+      'LINE_MENTION_ALIASES_JSON=[{"alias":"Wei bro","userId":"U' + '1'.repeat(32) + '"}]'));
+  }}), /Input changed/);
+});
+
+test('the real admin predeploy accepts existing aliases while retaining runtime, ledger and glossary checks offline', t => {
+  const options = fixture(t), name = 'functions/.env.' + DEV_PROJECT;
+  const configured = readFileSync(resolve(options.root, name), 'utf8').replace('LINE_MENTION_ALIASES_JSON=[]',
+    'LINE_MENTION_ALIASES_JSON=[{"alias":"Wei bro","userId":"U' + '1'.repeat(32) + '"}]');
+  rmSync(resolve(options.root, 'functions/.env.line-auto-translate-bot'));
+  options.put('.local/evidence/admin-glossary.json', '{}');
+  const mockSources = {
+    './nmt-glossary-spec.mjs': "export const glossaryRecordFile = 'admin-glossary.json';",
+    './nmt-glossary-provision.mjs': 'export function provisionNmtGlossaries() { throw Error("unexpected provisioning"); }',
+    '../lib/nmt-controlled-client.js': 'export class AuthenticatedNmtTransport {}',
+    '../lib/nmt-diagnostics.js': 'export function nmtFailure() { throw Error("unexpected diagnostics"); }',
+    '../lib/nmt-isolation.js': 'export const NMT_TEST_PROJECT=' + JSON.stringify(DEV_PROJECT) +
+      '; export const NMT_TEST_ACCOUNT="fixture", NMT_RUNTIME_ACCOUNT="nmt-test-runtime@" + NMT_TEST_PROJECT + ".iam.gserviceaccount.com", NMT_GLOSSARIES={}; export function assertNmtIdentity() {}',
+    'firebase-admin/app': 'export function initializeApp() { globalThis.checks.push("app"); return {}; }',
+    'firebase-admin/firestore': 'export function getFirestore() { return {doc(path) { return {async get() { globalThis.checks.push(path); return {data: () => ({version:2})}; }}; }, async terminate() {globalThis.checks.push("terminated");}}; }',
+    '@google-cloud/translate': 'export const v3={};',
+    '../lib/nmt-budget.js': 'export const NMT_LEDGER_PATH="ledger", NMT_MIGRATION_PATH="history"; export function initialNmtLedger() {} export function enableTrackingOnlyBudget() {} export function validateNmtLedger(data) {globalThis.checks.push("ledger-validated"); return data;} export function validateNmtPolicyHistory() {globalThis.checks.push("history-validated");}',
+    './nmt-local-guard.mjs': 'export const root=' + JSON.stringify(options.root) +
+      '; export function command() {throw Error("cloud commands forbidden");} export async function verifyLocalTarget() {globalThis.checks.push("identity"); return {};}' +
+      'export async function verifyGlossaries() {globalThis.checks.push("glossaries");} export function validateGlossaryRecords() {} export function canonicalGlossary() {}' +
+      'export function requireDeploySession() {globalThis.checks.push("session");} export function requireProjectArgument() {globalThis.checks.push("project");}',
+  };
+  const script = [
+    "import {registerHooks} from 'node:module';",
+    'globalThis.checks=[]; const sources=' + JSON.stringify(mockSources) + ';',
+    'registerHooks({resolve(specifier, context, nextResolve) {if (Object.hasOwn(sources,specifier)) return {url:"data:text/javascript,"+encodeURIComponent(sources[specifier]),shortCircuit:true}; return nextResolve(specifier,context);}});',
+    'process.argv=[process.execPath,"nmt-admin.mjs","deploy-check","--project=' + DEV_PROJECT + '"];',
+    'await import(' + JSON.stringify(new URL('./nmt-admin.mjs', import.meta.url).href) + ');',
+    'console.log(JSON.stringify(globalThis.checks));',
+  ].join('\n');
+  const run = () => spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8', windowsHide: true, env: {...process.env, GCLOUD_PROJECT: DEV_PROJECT},
+  });
+  options.put(name, configured);
+  const accepted = run();
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.deepEqual(JSON.parse(accepted.stdout), ['project', 'session', 'identity', 'app', 'ledger',
+    'ledger-validated', 'history', 'history-validated', 'terminated', 'glossaries']);
+  // New profiles retain project/session/identity/ledger checks. Only no-glossary skips glossary resources.
+  for (const profile of ['nmt-direct-v1', 'nmt-direct-glossary-v1']) {
+    options.put(name, configured.replace('TRANSLATION_ENGINE=nmt-glossary', 'TRANSLATION_ENGINE=nmt-direct\r\nNMT_REQUEST_PROFILE=' + profile));
+    const direct = run();
+    assert.equal(direct.status, 0, direct.stderr);
+    assert.deepEqual(JSON.parse(direct.stdout), ['project', 'session', 'identity', 'app', 'ledger', 'ledger-validated', 'history', 'history-validated', 'terminated', ...(profile === 'nmt-direct-v1' ? [] : ['glossaries'])]);
+  }
+  for (const changed of [configured.replace('TRANSLATION_ENGINE=nmt-glossary', 'TRANSLATION_ENGINE=business'),
+    configured.replace('TEST_RUNTIME_SERVICE_ACCOUNT=nmt-test-runtime@', 'TEST_RUNTIME_SERVICE_ACCOUNT=wrong@')]) {
+    options.put(name, changed);
+    const rejected = run();
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /Test runtime configuration mismatch/);
+  }
 });
 
 test('check-only reports inputs without writing a package or invoking verification', t => {
@@ -144,4 +227,66 @@ test('the actual deployment entry still rejects missing execution authorization 
   const result = spawnSync(process.execPath, [fileURLToPath(new URL('./nmt-admin.mjs', import.meta.url)), 'deploy', `--project=${DEV_PROJECT}`], {encoding: 'utf8', windowsHide: true});
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Review action then pass --execute/);
+});
+
+test('trusted direct profiles package without bypassing identity, verification or literal entries', t => {
+  for (const profile of ['nmt-direct-v1', 'nmt-direct-glossary-v1']) {
+    const options = fixture(t), name = 'functions/.env.' + DEV_PROJECT;
+    const configured = readFileSync(resolve(options.root, name), 'utf8').replace('TRANSLATION_ENGINE=nmt-glossary',
+      'TRANSLATION_ENGINE=nmt-direct\r\nNMT_REQUEST_PROFILE=' + profile);
+    options.put(name, configured);
+    let verified = 0;
+    const stage = prepareDevPackage(options, {verify: plan => {
+      verified++; compiled(plan);
+      for (const name of ['nmt-direct-translator.js', 'nmt-literal-policy.js', 'nmt-exact-directives.js', 'nmt-integrity.js', 'nmt-transport-codec.js', 'nmt-request-profile.js']) {
+        writeFileSync(resolve(plan.output, 'functions/lib', name), '// synthetic build\r\n');
+      }
+    }}).output;
+    assert.equal(verified, 1);
+    assert.equal(validateDevPackage(stage).status, 'verified');
+    assert.deepEqual(readFileSync(resolve(stage, name)), readFileSync(resolve(options.root, name)));
+    assert.equal(JSON.parse(readFileSync(resolve(stage, 'dev-package.json'))).profile, profile);
+    assert.equal(existsSync(resolve(stage, '.local/evidence/' + glossaryRecordFile)), true);
+  }
+});
+test('plain runtime still requires legacy metadata for full offline verification before writing a package', t => {
+  const options = fixture(t), name = 'functions/.env.' + DEV_PROJECT;
+  options.put(name, readFileSync(resolve(options.root, name), 'utf8').replace('TRANSLATION_ENGINE=nmt-glossary',
+    'TRANSLATION_ENGINE=nmt-direct\r\nNMT_REQUEST_PROFILE=nmt-direct-v1'));
+  rmSync(resolve(options.root, '.local/evidence/' + glossaryRecordFile));
+  assert.throws(() => prepareDevPackage(options, {verify: () => assert.fail('must stop at preflight')}), /Missing file/);
+  assert.equal(existsSync(resolve(options.root, options.out)), false);
+});
+
+test('direct configuration rejects missing/mismatched profile and duplicate controlled parameters', t => {
+  const options = fixture(t), name = 'functions/.env.' + DEV_PROJECT;
+  const original = readFileSync(resolve(options.root, name), 'utf8');
+  for (const text of [
+    original.replace('TRANSLATION_ENGINE=nmt-glossary', 'TRANSLATION_ENGINE=nmt-direct'),
+    original + 'NMT_REQUEST_PROFILE=nmt-direct-v1\r\n',
+    original + 'TRANSLATION_ENGINE=google\r\n',
+    original + 'TEST_RUNTIME_SERVICE_ACCOUNT=wrong\r\n',
+  ]) {
+    options.put(name, text);
+    assert.throws(() => prepareDevPackage({...options, checkOnly: true}), /runtime configuration|deployment contract/);
+    assert.equal(existsSync(resolve(options.root, options.out)), false);
+  }
+});
+
+test('direct package requires the explicit directive module even when all other entries were built', t => {
+  const options = fixture(t), name = 'functions/.env.' + DEV_PROJECT;
+  options.put(name, readFileSync(resolve(options.root, name), 'utf8').replace('TRANSLATION_ENGINE=nmt-glossary',
+    'TRANSLATION_ENGINE=nmt-direct\r\nNMT_REQUEST_PROFILE=nmt-direct-v1'));
+  assert.throws(() => prepareDevPackage(options, {verify: plan => {
+    compiled(plan);
+    for (const name of ['nmt-direct-translator.js', 'nmt-literal-policy.js', 'nmt-integrity.js', 'nmt-transport-codec.js', 'nmt-request-profile.js']) {
+      writeFileSync(resolve(plan.output, 'functions/lib', name), '// synthetic build\r\n');
+    }
+  }}), /Missing compiled deployment entry: lib\/nmt-exact-directives\.js/);
+  assert.equal(JSON.parse(readFileSync(resolve(options.root, options.out, 'dev-package.json'))).status, 'failed');
+});
+
+test('packaging rejects a missing NMT content capture module before deployment', t => {
+ const options=fixture(t);
+ assert.throws(()=>prepareDevPackage(options,{verify:plan=>{compiled(plan); const file=resolve(plan.output,'functions/lib/nmt-content-capture.js');assert.equal(dirname(file),resolve(plan.output,'functions/lib'));rmSync(file);}}),/Missing compiled deployment entry: lib\/nmt-content-capture.js/);
 });

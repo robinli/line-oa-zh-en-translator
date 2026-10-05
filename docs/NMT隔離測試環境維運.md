@@ -101,3 +101,15 @@ Cloud billing／IAM 的 raw REST 身分查詢必須明確帶測試 x-goog-user-p
 2026-09-25 使用者完成dev LINE_OWNER_USER_ID第2版後，已重新部署綁定至linewebhook-00002-qoh（ACTIVE）；1249應用／45工具／check/build通過，128個部署檔案與前版相同，原測試OA Webhook連線200且網址未改，ledger22964／170不變，群組人工驗收待使用者確認。
 
 LINE_OWNER_USER_ID第2版已綁定，不再使用owner占位；真實ID不記錄於此文件。私訊/myID成功已由使用者提供截圖，私訊/翻譯設定不回覆符合現行規則。現在可把新測試OA加入測試群組，由owner輸入/中英翻譯，再由成員輸入/翻譯設定；使用端結果仍待確認，不能用empty-events成功取代。
+
+## 2026-10-01 原文主路徑的本機配置候選
+
+[開發紀錄](NMT主路徑重設本機開發紀錄20261001.md) 的 `nmt-direct` 目前只完成本機實作與檢查，尚未切換 DEV。本機 `nmt-request-profile.ts` 將請求格式與隔離資源分開：`nmt-direct-v1` 支持原文 plain／最少 HTML、禁止詞表；`nmt-direct-glossary-v1` 僅加入既有核對的指定中英詞表。profile 只能由可信配置選定，來源訊息無權改 profile 或模型；中越保持舊 adapter／契約。
+
+舊 `nmt-glossary` 缺省 `legacy-glossary` 白名單仍拒絕 plain／無詞表請求。兩個新 profile 都經受控 client，保留固定 DEV project／principal／billing／runtime、原子預留、operation fence、15 秒逾時與零重試；沒有直接使用一般 Google client 繞過隔離。
+
+`semanticEvaluation=not_evaluated` 與 `validationScope=literal-integrity` 是能力標示，不能當作全句品質驗收。本次外部翻譯 API、部署及真人 LINE 呼叫均為零；NMT-08 的合成品質對照及 NMT-09 發佈依各自有效授權執行，不解除既有付費暫停或重設帳本。
+
+最後獨立複驗已發現 copy-exact 同根因仍未收斂，達兩輪上限後停止修補；此主路徑候選不可交付或部署，以上只記錄本機實作範圍，未改現行 DEV。
+
+2026-10-02 使用者要求繼續下一步後，原文主路徑已撤回未加引號的自動單位／報價推斷，改為每項原樣指示獨立明確宣告。異形引號／可信範圍的有限 M1 能力已獨立通過，ASCII 自動範圍已撤回，異形引號／可信範圍已獨立複驗通過；詳 [最新開發紀錄](NMT主路徑重設本機開發紀錄20261001.md)。現行 DEV 規則、歷史 findings 與付費暫停不變。

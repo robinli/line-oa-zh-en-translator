@@ -1,14 +1,16 @@
+import {projectNmtOutputContents, type NmtContentObserver} from "./nmt-content-capture.js";
 import type {DevEventSession} from "./dev-event-operation.js";
+import {assertNmtProfileRequest, type NmtRequestProfile} from "./nmt-request-profile.js";
 import {nmtFailure, nmtDiagnosticStep, type NmtFailureStage, type NmtFailureDiagnostic} from "./nmt-diagnostics.js";
 import {GoogleAuth} from "google-auth-library";
 import {countNmtCharacters, type BudgetStore, type NmtBudgetCategory} from "./nmt-budget.js";
-import {assertNmtIdentity, assertNmtRequest, NMT_TEST_PROJECT, NMT_RUNTIME_ACCOUNT, type ControlledNmtRequest, type NmtIdentity} from "./nmt-isolation.js";
+import {assertNmtIdentity, NMT_TEST_PROJECT, NMT_RUNTIME_ACCOUNT, type ControlledNmtRequest, type NmtIdentity} from "./nmt-isolation.js";
 export interface NmtResponse {translations?: Array<{translatedText?: string | null}> | null; glossaryTranslations?: Array<{translatedText?: string | null}> | null}
 export interface NmtCallOptions {timeout: number; retry: {retryCodes: number[]}}
 export interface NmtTransport {translateText(request: ControlledNmtRequest, options: NmtCallOptions): Promise<[NmtResponse, ...unknown[]]>}
 export class ControlledNmtClient implements NmtTransport {
   public constructor(private readonly transport: NmtTransport, private readonly budget: BudgetStore,
-    private readonly category: NmtBudgetCategory, private readonly identity: () => Promise<NmtIdentity>, private readonly runtime = false, private readonly session?: DevEventSession) {}
+    private readonly category: NmtBudgetCategory, private readonly identity: () => Promise<NmtIdentity>, private readonly runtime = false, private readonly session?: DevEventSession, private readonly profile: NmtRequestProfile = "legacy-glossary") {}
   public async translateText(request: ControlledNmtRequest, options: NmtCallOptions): Promise<[NmtResponse, ...unknown[]]> {
     let stage: NmtFailureStage = "request_validation";
     let reservation: NmtFailureDiagnostic["reservation"] = "not_started";
@@ -16,11 +18,11 @@ export class ControlledNmtClient implements NmtTransport {
     try {
       // Snapshot caller input before asynchronous identity/reservation to prevent mutation after counting.
       const frozen = structuredClone(request);
-      assertNmtRequest(frozen);
+      assertNmtProfileRequest(frozen, this.profile);
       if (options.timeout !== 15000 || options.retry.retryCodes.length) throw new Error("NMT retry/timeout mismatch");
       const characters = countNmtCharacters(frozen.contents);
       if (characters <= 0 || characters > 30000) throw new Error("Invalid NMT input size");
-      this.session?.prepare(frozen);
+      this.session?.prepare(frozen, this.profile);
       stage = "identity";
       const identity = await (this.session ? this.session.timed("identity", this.identity) : this.identity());
       stage = "identity.validation";
@@ -55,7 +57,7 @@ export class ControlledNmtClient implements NmtTransport {
   }
 }
 export class AuthenticatedNmtTransport implements NmtTransport {
-  public constructor(private readonly auth: Pick<GoogleAuth, "getAccessToken" | "getCredentials" | "getProjectId"> = new GoogleAuth({projectId: NMT_TEST_PROJECT, scopes: ["https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/userinfo.email"]})) {}
+  public constructor(private readonly auth: Pick<GoogleAuth, "getAccessToken" | "getCredentials" | "getProjectId"> = new GoogleAuth({projectId: NMT_TEST_PROJECT, scopes: ["https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/userinfo.email"]}), private readonly observer?: NmtContentObserver) {}
   private async json(url: string, token: string, stage: NmtFailureStage) {
     return nmtDiagnosticStep(stage, async () => {
       // getAccessToken() does not attach ADC quota metadata to native fetch.
@@ -86,11 +88,15 @@ export class AuthenticatedNmtTransport implements NmtTransport {
       const token = await nmtDiagnosticStep("provider.credentials", () => this.auth.getAccessToken());
       if (!token) throw nmtFailure(undefined, "provider.credentials");
       const {parent, ...body} = request;
+      const encodedBody = JSON.stringify(body);
+      try {this.observer?.onInput([...request.contents]);} catch { /* Advisory capture cannot change translation. */ }
       const response = await fetch("https://translation.googleapis.com/v3/" + parent + ":translateText", {method: "POST",
         headers: {Authorization: "Bearer " + token, "content-type": "application/json", "x-goog-user-project": NMT_TEST_PROJECT},
-        body: JSON.stringify(body), signal: AbortSignal.timeout(options.timeout)});
+        body: encodedBody, signal: AbortSignal.timeout(options.timeout)});
       if (!response.ok) throw nmtFailure({status: response.status}, "provider");
-      return [await response.json() as NmtResponse];
+      const result = await response.json() as NmtResponse;
+      try {this.observer?.onOutput(projectNmtOutputContents(result));} catch { /* Preserve the provider result even if capture fails. */ }
+      return [result];
     });
   }
 }

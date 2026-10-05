@@ -7,6 +7,8 @@ import type {messagingApi} from "@line/bot-sdk";
 
 export interface TranslationContext {
   protectedRanges?: ReadonlyArray<{start: number; length: number}>;
+  // Trusted literal scopes; never inferred from LINE identities or untrusted metadata.
+  copyExactRanges?: ReadonlyArray<{start: number; length: number}>;
 }
 
 export interface Translator {

@@ -69,4 +69,4 @@ Firebase 參數 LINE_MENTION_ALIASES_JSON 是陣列，預設為 []。每筆包�
 
 真實 ID 僅存 Git 忽略的 `.local/nmt-worktree/functions/.env.line-auto-translate-bot-dev`、`.local/line-member-aliases-dev.json` 及 `.local/wei-dev-20261001/` 私密備份／驗證證據，不覆寫既有正式對應檔。來源、參數及流量證據見 `result.json`、before／after Function、Service、Revision、source ZIP 與 `smoke.json`；這些私密檔不加入 Git。
 
-本次是雲端設定更新，不修改應用或完整部署工具。現行 `prepare-dev-deploy.mjs` 與 `nmt-admin.mjs` 仍要求 LINE_MENTION_ALIASES_JSON=[]，更新後的私密 DEV dotenv 會使完整封裝／部署前檢查停止；下一次完整程式部署前須先支援並驗證已確認的 DEV 別名，再依原流程封裝，不能以清空別名或改寫既有凍結包來繞過。歷史部署包保留原狀，直接重用會還原為空別名。
+上述雲端設定更新當時未修改應用或完整部署工具，原 `prepare-dev-deploy.mjs` 與 `nmt-admin.mjs` 的空別名限制曾阻擋新設定。使用者隨後要求「封裝時忽略更新別名（Wei）」：現行工具移除空別名限制，原樣複製指定 DEV dotenv 並凍結其雜湊，封裝不更新、不清空或重新查詢 Wei 對應；別名解析沿用 `mentions` 現行契約。歷史空別名包保留原狀，不能用它覆寫目前設定；本次工具調整未部署或修改私密對應。

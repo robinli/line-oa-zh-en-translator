@@ -4,13 +4,13 @@ import {copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSyn
 import {delimiter, dirname, isAbsolute, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {glossaryRecordFile} from './nmt-glossary-spec.mjs';
+import {devRuntimeConfiguration} from './dev-request-profile.mjs';
 
 export const DEV_PROJECT = 'line-auto-translate-bot-dev';
-const runtimeAccount = `nmt-test-runtime@${DEV_PROJECT}.iam.gserviceaccount.com`;
 const rootFiles = ['package.json', 'firebase.json', '.firebaserc', 'scripts/check-local.ps1'];
 const functionFiles = ['package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'vitest.config.mts'];
 const sourceDirectories = ['src', 'scripts', 'evaluation', 'glossaries', 'config'];
-const builtEntries = ['index.js', 'nmt-controlled-client.js', 'nmt-isolation.js'];
+const builtEntries = ['index.js', 'nmt-controlled-client.js', 'nmt-content-capture.js', 'nmt-isolation.js'];
 const stateFile = 'dev-package.json';
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 const text = (path, value) => writeFileSync(path, value.replace(/\r?\n/g, '\r\n'), 'utf8');
@@ -64,12 +64,18 @@ export function preflightDevPackage(options) {
   requirePath(envFile);
   requirePath(resolve(authDir, 'gcloud/application_default_credentials.json'));
   requirePath(resolve(authDir, 'firebase/configstore/firebase-tools.json'));
+  let configuration;
+  if (existsSync(envFile)) {
+    try {configuration = devRuntimeConfiguration(readFileSync(envFile, 'utf8'));}
+    catch (error) {errors.push('DEV dotenv does not match the existing deployment contract: ' + error.message);}
+  }
+  // Full offline verification includes archived glossary-contract tools for every runtime profile.
+  // This metadata is a verification input; it does not enable glossary requests in the plain runtime.
   requirePath(resolve(evidenceDir, glossaryRecordFile));
   if (npmCli) requirePath(npmCli); else errors.push('npm CLI is required: run via npm run prepare:dev or supply --npm-cli=PATH');
   if (errors.length) throw Error('DEV package preflight failed:\n' + errors.join('\n'));
   if (!inside(root, envFile) || !envFile.endsWith(`.env.${DEV_PROJECT}`)) throw Error('Use an explicit project-local DEV dotenv file');
-  const env = readFileSync(envFile, 'utf8');
-  if (!/^TRANSLATION_ENGINE=nmt-glossary\r?$/m.test(env) || !env.includes(`TEST_RUNTIME_SERVICE_ACCOUNT=${runtimeAccount}`) || !/^LINE_MENTION_ALIASES_JSON=\[\]\r?$/m.test(env)) throw Error('DEV dotenv does not match the existing deployment contract');
+  // Preserve existing mention aliases verbatim; packaging only validates controlled parameters.
   const aliases = Object.values(readJson(resolve(root, '.firebaserc')).projects ?? {});
   if (!aliases.length || aliases.some(value => value !== DEV_PROJECT)) throw Error('Only DEV Firebase aliases are allowed in this package');
   const firebase = readJson(resolve(root, 'firebase.json'));
@@ -83,7 +89,7 @@ export function preflightDevPackage(options) {
     files.push(...walk(directory, `functions/${name}/`));
   }
   for (const name of files) if (lstatSync(resolve(root, name)).isSymbolicLink()) throw Error(`Source links are not allowed: ${name}`);
-  return {root, output, envFile, authDir: realpathSync(authDir), evidenceDir: realpathSync(evidenceDir), npmCli: resolve(npmCli), files: files.sort()};
+  return {root, output, envFile, authDir: realpathSync(authDir), evidenceDir: realpathSync(evidenceDir), configuration, npmCli: resolve(npmCli), files: files.sort()};
 }
 
 function runVerify(plan) {
@@ -134,9 +140,10 @@ export function prepareDevPackage(options, {verify = runVerify} = {}) {
   const inputHashes = Object.fromEntries(Object.entries(privateInputs).map(([name, path]) => [name, sha(path)]));
   mkdirSync(dirname(plan.output), {recursive: true});
   mkdirSync(plan.output); // No overwrite/resume of an old or partially built candidate.
-  const state = {version: 1, project: DEV_PROJECT, status: 'preparing', node: process.version, deployed: false};
+  const state = {version: 1, project: DEV_PROJECT, profile: plan.configuration.profile, status: 'preparing', node: process.version, deployed: false};
   json(resolve(plan.output, stateFile), state);
   try {
+    mkdirSync(resolve(plan.output, '.local/evidence'), {recursive: true});
     for (const [name, source] of [...plan.files.map(name => [name, resolve(plan.root, name)]), ...Object.entries(privateInputs)]) {
       const target = resolve(plan.output, name); mkdirSync(dirname(target), {recursive: true}); copyFileSync(source, target);
     }
@@ -149,7 +156,8 @@ export function prepareDevPackage(options, {verify = runVerify} = {}) {
     for (const [name, hash] of Object.entries({...before, ...inputHashes})) {
       if (sha(resolve(plan.output, name)) !== hash || sha(privateInputs[name] ?? resolve(plan.root, name)) !== hash) throw Error(`Input changed during preparation: ${name}`);
     }
-    for (const name of builtEntries) if (!existsSync(resolve(plan.output, 'functions/lib', name))) throw Error(`Missing compiled deployment entry: lib/${name}`);
+    const requiredBuilt = [...builtEntries, ...(plan.configuration.engine === 'nmt-direct' ? ['nmt-direct-translator.js', 'nmt-literal-policy.js', 'nmt-exact-directives.js', 'nmt-integrity.js', 'nmt-transport-codec.js', 'nmt-request-profile.js'] : [])];
+    for (const name of requiredBuilt) if (!existsSync(resolve(plan.output, 'functions/lib', name))) throw Error(`Missing compiled deployment entry: lib/${name}`);
     deploymentLauncher(plan);
     const files = {...before, ...inputHashes};
     for (const name of walk(resolve(plan.output, 'functions/lib'), 'functions/lib/')) files[name] = sha(resolve(plan.output, name));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {exportOptions,jsonValue,summarize,exportGroups,selectExportRows} from './export-translation-quality.mjs';
+import {exportOptions,jsonValue,summarize,summarizeValidation,exportGroups,selectExportRows} from './export-translation-quality.mjs';
 const root='E:/workspace';
 const args=['--project=line-auto-translate-bot-dev','--from=2026-09-25','--to=2026-10-01'];
 test('dynamic export includes new and disabled groups and preserves historical rows',()=>{
@@ -44,4 +44,25 @@ test('known provider response remains known when provider completion persistence
  const {summarizeOperations}=await import('./export-translation-quality.mjs');
  const result=summarizeOperations([{operationId:'known-return',claimedAt:'2026-09-30T01:00:00Z',providerStatus:'provider_started',deliveryStatus:'sent',telemetry:{apiCalled:true,reservedCharacters:10,wireCharacters:10,outputCharacters:4,failureStage:'provider_completion'}}]);
  assert.equal(result.byDay[0].apiCalledTrue,1);assert.equal(result.byDay[0].apiCalledUnknown,0);assert.equal(result.byDay[0].knownWireCharacters,10);assert.equal(result.byDay[0].outputCharacters,4);
+});
+
+test('validation summaries keep old rows unknown and never promote delivery success to semantic correctness', () => {
+ const rows=[
+  {outcome:'translated',deliveryStatus:'sent'},
+  {requestProfile:'nmt-direct-v1',validationScope:'literal-integrity',semanticEvaluation:'not_evaluated'},
+  {telemetry:{requestProfile:'nmt-direct-glossary-v1',validationScope:'literal-integrity',semanticEvaluation:'not_evaluated'}},
+  {telemetry:{requestProfile:'unrecognized',validationScope:'invented',semanticEvaluation:'passed'}},
+ ];
+ const result=summarizeValidation(rows);
+ assert.deepEqual(result.validationScopes,{'literal-integrity':2,unknown:2});
+ assert.deepEqual(result.semanticEvaluation,{not_evaluated:2,unknown:2});
+ assert.deepEqual(result.profiles,{unknown:2,'nmt-direct-v1':1,'nmt-direct-glossary-v1':1});
+ assert.match(result.qualification,/does not certify semantic correctness/);
+});
+
+test('JSONL preserves raw NMT contents and keeps historical absence distinct from null', () => {
+ const historical={sourceText:'old'};
+ const raw={sourceText:'請確認 PP-BK。',nmtInputContents:['<div>請確認 <span translate="no">PP-BK</span></div>\r\n','😀'],nmtOutputContents:{translations:['raw first',null,''],glossaryTranslations:['raw glossary']},translatedText:null,replyText:'🚧'};
+ const rows=[historical,raw,{nmtInputContents:null,nmtOutputContents:null}].map(row=>JSON.parse(JSON.stringify(jsonValue(row))));
+ assert.deepEqual(rows[1],raw);assert.equal(Object.hasOwn(rows[0],'nmtInputContents'),false);assert.deepEqual(rows[2],{nmtInputContents:null,nmtOutputContents:null});
 });

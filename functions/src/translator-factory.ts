@@ -1,3 +1,5 @@
+import {NmtDirectTranslator, type NmtDirectMetric, type NmtDirectOptions} from "./nmt-direct-translator.js";
+import type {NmtTransport} from "./nmt-controlled-client.js";
 import {NmtGlossaryTranslator, type NmtGlossaryClient, type NmtGlossaryMetric} from "./nmt-glossary-translator.js";
 import {BusinessTranslator, VertexTextGenerator} from "./business-translator.js";
 import {TranslationLlmTranslator, type TranslationLlmMetric} from "./translation-llm-translator.js";
@@ -12,11 +14,18 @@ export interface TranslationConfiguration {
   onValidationRetry?: (reason: string) => void;
   nmtGlossary?: {location: string; glossaryZhEn: string; glossaryEnZh: string; client: NmtGlossaryClient};
   onNmtMetric?: (metric: NmtGlossaryMetric) => void;
+  nmtDirect?: {profile: NmtDirectOptions["profile"]; client: NmtTransport};
+  onNmtDirectMetric?: (metric: NmtDirectMetric) => void;
   translationLlm?: {location: string; glossaryZhEn: string; glossaryEnZh: string};
   onTranslationMetric?: (metric: TranslationLlmMetric) => void;
 }
 
 export function createTranslator(config: TranslationConfiguration): Translator {
+  if (config.engine === "nmt-direct") {
+    if (!config.nmtDirect) throw new Error("Missing NMT direct configuration.");
+    return new NmtDirectTranslator({projectId: config.projectId, profile: config.nmtDirect.profile,
+      protectedNames: config.protectedNames.split(",").map(name => name.trim()).filter(Boolean), onMetric: config.onNmtDirectMetric}, config.nmtDirect.client);
+  }
   if (config.engine === "nmt-glossary") {
     if (!config.nmtGlossary) throw new Error("Missing NMT glossary configuration.");
     return new NmtGlossaryTranslator({projectId: config.projectId, ...config.nmtGlossary,

@@ -1,6 +1,7 @@
 # Project defaults; an explicit task/UI override can take precedence.
 model = "gpt-6.1-sol"
-model_reasoning_effort = "high"
+# Root reasoning follows the task/UI selection; verify the actual value once.
+# model_reasoning_effort = "high"
 
 [agents]
 enabled = true

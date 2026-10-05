@@ -1,4 +1,5 @@
 import {glossaryRecordFile} from './nmt-glossary-spec.mjs';
+import {devRuntimeConfiguration} from './dev-request-profile.mjs';
 import {provisionNmtGlossaries} from './nmt-glossary-provision.mjs';
 import {fileURLToPath} from 'node:url';
 import {AuthenticatedNmtTransport} from '../lib/nmt-controlled-client.js';
@@ -75,11 +76,12 @@ if(action==='deploy'||action==='deploy-check'){
  if(action==='deploy-check'&&process.env.GCLOUD_PROJECT!==project)throw Error('Firebase predeploy project mismatch');
  const envPath=resolve(root,'functions/.env.'+project);
  const env=readFileSync(envPath,'utf8');
- if(!/^TRANSLATION_ENGINE=nmt-glossary\r?$/m.test(env)||!env.includes('TEST_RUNTIME_SERVICE_ACCOUNT='+runtime)||!/^LINE_MENTION_ALIASES_JSON=\[\]\r?$/m.test(env))throw Error('Test runtime configuration mismatch');
+ // Preserve the package's existing mention aliases; deployment does not update identities.
+ const configuration=devRuntimeConfiguration(env);
  if(existsSync(resolve(root,'functions/.env.line-auto-translate-bot'))||existsSync(resolve(root,'functions/.env')))throw Error('Unscoped/production dotenv prohibited in test deploy');
  const db=getFirestore(initializeApp({projectId:project}));
  try{const ledger=validateNmtLedger((await db.doc(NMT_LEDGER_PATH).get()).data(),project);if(ledger.version===2)validateNmtPolicyHistory((await db.doc(NMT_MIGRATION_PATH).get()).data(),ledger);}finally{await db.terminate();}
- await verifyGlossaries(JSON.parse(readFileSync(resolve(root,'.local/evidence/'+glossaryRecordFile),'utf8')));
+ if(configuration.glossaryRequired)await verifyGlossaries(JSON.parse(readFileSync(resolve(root,'.local/evidence/'+glossaryRecordFile),'utf8')));
  if(action==='deploy'){
   const session={nonce:randomBytes(32).toString('hex'),project,account,createdAt:Date.now()},path=resolve(root,'.local/nmt-auth/deploy-session.json');
   writeFileSync(path,JSON.stringify(session),{flag:'wx'});
