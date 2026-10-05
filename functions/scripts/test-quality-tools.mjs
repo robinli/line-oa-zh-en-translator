@@ -59,3 +59,10 @@ test('validation summaries keep old rows unknown and never promote delivery succ
  assert.deepEqual(result.profiles,{unknown:2,'nmt-direct-v1':1,'nmt-direct-glossary-v1':1});
  assert.match(result.qualification,/does not certify semantic correctness/);
 });
+
+test('JSONL preserves raw NMT contents and keeps historical absence distinct from null', () => {
+ const historical={sourceText:'old'};
+ const raw={sourceText:'請確認 PP-BK。',nmtInputContents:['<div>請確認 <span translate="no">PP-BK</span></div>\r\n','😀'],nmtOutputContents:{translations:['raw first',null,''],glossaryTranslations:['raw glossary']},translatedText:null,replyText:'🚧'};
+ const rows=[historical,raw,{nmtInputContents:null,nmtOutputContents:null}].map(row=>JSON.parse(JSON.stringify(jsonValue(row))));
+ assert.deepEqual(rows[1],raw);assert.equal(Object.hasOwn(rows[0],'nmtInputContents'),false);assert.deepEqual(rows[2],{nmtInputContents:null,nmtOutputContents:null});
+});

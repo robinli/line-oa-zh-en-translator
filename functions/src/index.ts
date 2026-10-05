@@ -1,3 +1,4 @@
+import type {NmtContentObserver} from "./nmt-content-capture.js";
 import {resolveNmtRuntimeProfile, type NmtRequestProfile} from "./nmt-request-profile.js";
 import {FirestoreDevEventOperationStore} from "./dev-event-operation-store.js";
 import type {DevEventSession} from "./dev-event-operation.js";
@@ -48,19 +49,19 @@ const firebaseApp = getApps()[0] ?? initializeApp();
 const translationFailureStore = new FirestoreTranslationFailureStore(getFirestore(firebaseApp));
 const conversationSettingsStore = new FirestoreConversationSettingsStore(getFirestore(firebaseApp));
 
-function controlledClient(session?: DevEventSession, profile: NmtRequestProfile = "legacy-glossary") {
+function controlledClient(session?: DevEventSession, profile: NmtRequestProfile = "legacy-glossary", observer?: NmtContentObserver) {
   if (projectID.value() !== NMT_TEST_PROJECT || runtimeServiceAccount.value() !== NMT_RUNTIME_ACCOUNT) throw new Error("Isolated NMT runtime target mismatch");
-  const transport = new AuthenticatedNmtTransport();
+  const transport = new AuthenticatedNmtTransport(undefined, observer);
   return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", () => transport.identity(), true, session, profile);
 }
 
-const eventTranslationProgram = (session: DevEventSession) => createTranslationProgramRouter(() => {
+const eventTranslationProgram = (session: DevEventSession, observer?: NmtContentObserver) => createTranslationProgramRouter(() => {
   let aliases: MentionAlias[] = [];
   try { aliases = parseMentionAliases(mentionAliases.value()); } catch {
     logger.warn("LINE mention aliases are disabled because configuration is invalid.");
   }
   const profile = resolveNmtRuntimeProfile(translationEngine.value(), nmtRequestProfile.value());
-  const client = controlledClient(session, profile);
+  const client = controlledClient(session, profile, observer);
   return {
     translator: createTranslator({
       engine: translationEngine.value(),
@@ -101,7 +102,7 @@ const eventTranslationProgram = (session: DevEventSession) => createTranslationP
     }),
     mentionAliases: aliases,
   };
-}, () => new VietnameseNmtTranslator(projectID.value(), controlledClient(session), metric => {
+}, () => new VietnameseNmtTranslator(projectID.value(), controlledClient(session, "legacy-glossary", observer), metric => {
   session.telemetry.adapterVersion = metric.adapterVersion;
   session.telemetry.protectionVersion = "literal-code-20260929";
   if (session.providerStatus === "not_started") session.telemetry.outputCharacters = metric.outputCharacters;

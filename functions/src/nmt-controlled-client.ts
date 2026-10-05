@@ -1,3 +1,4 @@
+import {projectNmtOutputContents, type NmtContentObserver} from "./nmt-content-capture.js";
 import type {DevEventSession} from "./dev-event-operation.js";
 import {assertNmtProfileRequest, type NmtRequestProfile} from "./nmt-request-profile.js";
 import {nmtFailure, nmtDiagnosticStep, type NmtFailureStage, type NmtFailureDiagnostic} from "./nmt-diagnostics.js";
@@ -56,7 +57,7 @@ export class ControlledNmtClient implements NmtTransport {
   }
 }
 export class AuthenticatedNmtTransport implements NmtTransport {
-  public constructor(private readonly auth: Pick<GoogleAuth, "getAccessToken" | "getCredentials" | "getProjectId"> = new GoogleAuth({projectId: NMT_TEST_PROJECT, scopes: ["https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/userinfo.email"]})) {}
+  public constructor(private readonly auth: Pick<GoogleAuth, "getAccessToken" | "getCredentials" | "getProjectId"> = new GoogleAuth({projectId: NMT_TEST_PROJECT, scopes: ["https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/userinfo.email"]}), private readonly observer?: NmtContentObserver) {}
   private async json(url: string, token: string, stage: NmtFailureStage) {
     return nmtDiagnosticStep(stage, async () => {
       // getAccessToken() does not attach ADC quota metadata to native fetch.
@@ -87,11 +88,15 @@ export class AuthenticatedNmtTransport implements NmtTransport {
       const token = await nmtDiagnosticStep("provider.credentials", () => this.auth.getAccessToken());
       if (!token) throw nmtFailure(undefined, "provider.credentials");
       const {parent, ...body} = request;
+      const encodedBody = JSON.stringify(body);
+      try {this.observer?.onInput([...request.contents]);} catch { /* Advisory capture cannot change translation. */ }
       const response = await fetch("https://translation.googleapis.com/v3/" + parent + ":translateText", {method: "POST",
         headers: {Authorization: "Bearer " + token, "content-type": "application/json", "x-goog-user-project": NMT_TEST_PROJECT},
-        body: JSON.stringify(body), signal: AbortSignal.timeout(options.timeout)});
+        body: encodedBody, signal: AbortSignal.timeout(options.timeout)});
       if (!response.ok) throw nmtFailure({status: response.status}, "provider");
-      return [await response.json() as NmtResponse];
+      const result = await response.json() as NmtResponse;
+      try {this.observer?.onOutput(projectNmtOutputContents(result));} catch { /* Preserve the provider result even if capture fails. */ }
+      return [result];
     });
   }
 }

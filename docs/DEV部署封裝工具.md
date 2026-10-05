@@ -82,3 +82,7 @@ Node 22 的實際隔離包已通過型別檢查、建置、1,539 項應用、45 
 2026-10-02固定原文NMT套件nmt-only-20261002-final2已按新增明確部署授權經包內launcher及完整Firebase predeploy發布DEV：linewebhook-00010-xew，ACTIVE／100%；部署後423檔凍結、208個雲端來源檔及健康檢查通過。上文未部署與不可交付段落保留為各歷史候選結果，不適用已限縮並獨立驗證的此包；整體NMT品質仍未通過、手機驗收待完成。詳[交付及部署](NMT固定主路徑交付20261002.md)。
 
 2026-10-02 name-protection-20261002-final1已按再次明確部署授權完成發布：linewebhook-00011-wup／ACTIVE／100%，424檔凍結，完整包內及Firebase predeploy通過62檔／2,134應用與83工具；独立包驗證與208個雲端來源檔核對通過。此次實際--env-file採前一已部署凍結包nmt-only-20261002-final2/functions/.env.line-auto-translate-bot-dev，逐byte保留現行參數與別名；沒有修改文件範例的nmt-worktree來源。原真人驗收、double-check政策與整體語意品質仍待完成，詳[最新交付](NMT固定主路徑交付20261002.md)。
+
+2026-10-03 nmt-content-20261003-final1 已依一般訊息「同意部署 DEV」發布 linewebhook-00012-fiz／ACTIVE／100%，429 檔凍結、63 檔／2,157 應用及 85 工具完整 verify／predeploy 通過，212 個雲端應用／建置／package 檔與封裝一致；本輪 5 筆真實 NMT 共 230 碼點，最後一筆實際 Firebase 新欄位及重送去重／合成清理通過。dotenv 逐 byte 沿用 name-protection-20261002-final1，現有別名與 Vertex 停用維持，未向真人發送測試訊息；詳 [NMT 內容記錄](DEV翻譯品質紀錄與錯誤案例回報.md#2026-10-03-nmt-傳輸內容記錄)。
+
+2026-10-05 html-name-copy-20261005-final1 已依「部署到 DEV」授權，經標準 launcher 與完整 Firebase predeploy 發布 linewebhook-00013-gug／ACTIVE／100%，430 檔凍結、64 檔／2,178 應用與 85 工具檢查通過；獨立 verifier 確認 276 個實測應用檔逐 byte 相同，沿用 4 筆真實 NMT，dotenv bytes 沿用 nmt-content-20261003-final1，現有別名不變。212 個雲端來源及零翻譯健康檢查通過，Vertex AI 仍 DISABLED；HNC-I01／既有語意 findings 及手機驗收保持未結案。證據 .local/html-name-copy-deploy-20261005/，詳 [修復與部署](NMT固定主路徑交付20261002.md#html-冗餘人名保護副本修復2026-10-05)。

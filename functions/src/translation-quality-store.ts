@@ -1,3 +1,4 @@
+import {copyNmtOutputContents, type NmtOutputContents} from "./nmt-content-capture.js";
 import {createHash} from "node:crypto";
 import {FieldPath, type Firestore} from "firebase-admin/firestore";
 import {NMT_TEST_PROJECT} from "./nmt-isolation.js";
@@ -19,6 +20,7 @@ export interface QualityOriginal {
   eventTime: Date; recordedAt: Date; sourceText: string | null;
 }
 export interface QualityCompletion {
+  nmtInputContents?: string[] | null; nmtOutputContents?: NmtOutputContents | null;
   operationId?: string;
   sourceText?: string | null; translatedText?: string | null; replyText?: string | null;
   translationMode?: string | null; sourceLanguageCode?: string | null; targetLanguageCode?: string | null;
@@ -78,16 +80,18 @@ export function parseQualityConfig(value: unknown): QualityConfig | null {
   const startedAt = qualityDate(data.startedAt);
   return startedAt ? {enabled: true, groups, startedAt} : null;
 }
-// Allowlist projection deliberately excludes tokens, attachments, arbitrary errors and rejected outputs.
+// Allowlist projection deliberately excludes tokens, attachments and arbitrary errors; raw NMT text is explicitly captured separately.
 function originalData(record: QualityOriginal): Record<string, unknown> {
   return {schemaVersion: 1, ...(record.operationId ? {operationId: record.operationId} : {}), groupId: record.groupId, groupName: record.groupName,
     senderUserId: record.senderUserId, webhookEventId: record.webhookEventId, messageId: record.messageId,
     quotedMessageId: record.quotedMessageId ?? null, messageType: record.messageType, eventTime: record.eventTime, recordedAt: record.recordedAt,
-    sourceText: record.messageType === "text" ? record.sourceText : null};
+    sourceText: record.messageType === "text" ? record.sourceText : null, nmtInputContents: null, nmtOutputContents: null};
 }
 function completionData(completion: QualityCompletion): Record<string, unknown> {
   const data: Record<string, unknown> = {...(completion.operationId ? {operationId: completion.operationId} : {}), outcome: completion.outcome, deliveryStatus: completion.deliveryStatus, completedAt: completion.completedAt};
   for (const key of ["translatedText", "replyText", "translationMode", "sourceLanguageCode", "targetLanguageCode", "engine", "glossary", "revision", "adapterVersion", "protectionVersion", "requestProfile", "validationScope", "semanticEvaluation", "reason"] as const) data[key] = completion[key] ?? null;
+  data.nmtInputContents = Array.isArray(completion.nmtInputContents) && completion.nmtInputContents.every(text => typeof text === "string") ? [...completion.nmtInputContents] : null;
+  data.nmtOutputContents = completion.nmtOutputContents ? copyNmtOutputContents(completion.nmtOutputContents) : null;
   return data;
 }
 export class FirestoreTranslationQualityStore implements TranslationQualityStore {

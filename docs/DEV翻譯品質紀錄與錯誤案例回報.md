@@ -2,9 +2,21 @@
 
 2026-09-26：本功能僅適用 `line-auto-translate-bot-dev`／測試 OA `@249opyjp`。目標為保存交談與譯文，供使用者一週後提出分析；不改翻譯引擎、術語表或品質演算法，不新增付費翻譯測試。
 
-> **最新狀態（2026-09-26）：** 群組記錄開關已部署 DEV `linewebhook-00006-wol`（ACTIVE、100% 流量），5 個已知群組均開啟，新增群組缺省開啟；完整離線、獨立驗證及 7 組雲端合成檢查通過，手機端待人工驗收。證據 `.local/quality-recording-20260926/`。
+> **群組記錄開關交付（2026-09-26）：** 群組記錄開關已部署 DEV `linewebhook-00006-wol`（ACTIVE、100% 流量），5 個已知群組均開啟，新增群組缺省開啟；完整離線、獨立驗證及 7 組雲端合成檢查通過，手機端待人工驗收。證據 `.local/quality-recording-20260926/`。
 
 > 2026-09-25 歷史狀態：開發、Node22 完整離線測試（1,527 應用＋45 既有工具＋4 匯出工具）、Firestore emulator 及獨立驗證已通過；DEV 已部署 linewebhook-00005-win（ACTIVE、100% 流量），四群採集自 2026-09-25 19:51:20（Asia/Taipei）開始；手機操作待人工驗收。證據位於 `.local/quality-20260925/`。
+
+## 2026-10-03 NMT 傳輸內容記錄
+
+依使用者明確需求，DEV 的 lineTranslationMessages 新增兩欄，沿用品質採集總開關與群組記錄開關，適用中英、中越及已取得的語音逐字稿翻譯。本次開發及凍結包已通過 63 檔／2,157 應用及 85 工具檢查、Firestore emulator 與獨立 61 定向／5 組 compiled 檢查；429 檔凍結。取得一般訊息「同意部署 DEV」後，於 2026-10-03 19:37:53（台北）按標準 launcher 發布 DEV linewebhook-00012-fiz（ACTIVE／100% 流量），Firebase 完整 predeploy 通過，212 個雲端原碼／編譯／套件檔案與凍結包一致。5 筆真實 DEV NMT 共 230 Unicode 碼點：前 4 筆走凍結應用入口，第 5 筆走部署後簽章 webhook 並實際寫入 Firebase，兩個新欄位、譯文、重送去重及合成資料清理均通過。無效 replyToken 刻意拒絕 LINE 發送，未向真人發送訊息；手機驗收及既存語意品質未解項目另列，證據 `.local/nmt-content-recording-20261003/`。
+
+- nmtInputContents：字串陣列或 null；在實際 NMT fetch 前保存請求 contents 快照，保留 HTML 保護標記、空白、換行與項目順序。這代表傳輸嘗試，不證明遠端已接收；沿用 operation 的 API 狀態判斷。
+- nmtOutputContents：物件或 null；僅保留回應中的 translations／glossaryTranslations，各值為原始 translatedText 的字串／null 陣列；原回應中該來源為空或格式異常時保留空陣列／null，無來源鍵時為空物件。保留內容與順序，不還原 HTML、不轉繁體、不複製其他回應欄位。
+- 保存所有已取得的 NMT 原始輸出，包含完整性或格式檢查拒絕的內容；拒絕時 translatedText 仍為 null，仍按既有流程回覆 🚧。此項是使用者明確新增的保存例外，限上述欄位，不擴大失敗集合或一般日誌。
+- 未呼叫 NMT 或憑證在送出前失敗時兩欄為 null；已嘗試送出但逾時、HTTP 失敗或無可解析回應時保留輸入，輸出為 null。
+- 2026-10-05 HTML 人名冗餘副本修復為已獨立驗證並部署 DEV 的修正：nmtOutputContents 仍保存完整修復前輸出，通過後 translatedText／replyText 保存修復結果；當前凍結 NMT 正反例已確認 raw 保留及拒絕譯文為 null，原始輸出不因通過檢查而改寫，已於 2026-10-05 11:28:53（台北）發布 linewebhook-00013-gug／ACTIVE／100% 流量，手機驗收待完成。詳 [候選契約與未解項目](NMT固定主路徑交付20261002.md#html-冗餘人名保護副本修復2026-10-05)。
+- 與首次完成結果一同寫入，重送不覆寫；關閉記錄不保存，既有匯出隨記錄保留兩欄。歷史缺欄位表示當時未採集，不回填、不另呼叫翻譯。
+- 不保存 HTTP headers、replyToken、Secret、原始錯誤或任意回應物件；記錄失敗不阻擋翻譯與 LINE 回覆。
 
 ## 收集範圍
 
@@ -27,7 +39,7 @@
 - 記錄開啟時包含翻譯停用、管理指令（不含兩個記錄開關）、正常略過、錯誤與限制阻擋。原文按首次收到內容保存。
 - 原譯文與實際回覆分開；相同譯文改回覆 👆 時仍能查到原譯文。API 接受回覆不代表手機已讀或顯示驗收完成。
 - 語音未取得逐字稿時只記可取得資訊與原因，不為採集新增辨識呼叫；圖片、貼圖、影片及檔案只記類型與訊息資訊。
-- 不保存音訊或附件、品質拒絕候選譯文、replyToken、Secret 或 SDK 原始錯誤。人工回報的錯誤譯文屬管理者主動提供的案例內容，另外保存。
+- 不保存音訊或附件、replyToken、Secret 或 SDK 原始錯誤。品質拒絕候選不寫入 translatedText；2026-10-03 起按上節明確需求，僅在 nmtOutputContents 保存已取得的 NMT 原始輸出。人工回報的錯誤譯文屬管理者主動提供的案例內容，另外保存。
 - 儲存以事件 ID／群組及訊息 ID 去重，保留首筆原文；完成狀態可補齊，重送不覆寫已完成結果。這不是整個 webhook 發送去重。
 - 有限重試後寫入仍失敗，不阻擋翻譯回覆；安全診斷 `reason=quality_store_error` 不含本文或身分。資料庫本身不可用時無法靠該資料庫準確統計遺失訊息，因此分析須核對 Cloud Logging；無權讀取日誌時標示未知，不以零代替。
 - `lineTranslationFailures` 保留既有用途與規格，與新的採集紀錄以事件 ID 關聯。
@@ -64,7 +76,7 @@ npm.cmd --prefix functions run export:quality -- --project=line-auto-translate-b
 
 採 Node 22；應用與匯出工具測試為離線 mock／合成資料，Firestore emulator 驗證持久儲存介面、並行去重與跨實例狀態。完成後由一位 verifier 獨立驗證。全部程式、設定與文件保持 UTF-8／CRLF。
 
-部署只使用 DEV 隔離帳號與專案，沿用原 OA／Webhook。雲端合成檢查使用無效 replyToken，避免向真人發送；只用正常略過、非文字或管理入口，不增加翻譯 API 字元。合成資料清除使用 updateTime 前置條件。
+部署只使用 DEV 隔離帳號與專案，沿用原 OA／Webhook。雲端合成檢查使用無效 replyToken，避免向真人發送；原群組開關交付只用正常略過、非文字或管理入口，不增加翻譯 API 字元。2026-10-03 新欄位驗收依本次授權及共用 manifest，部署後增加 1 筆實際 NMT（10 碼點），確認新欄位入庫；全輪共 5 筆／230 碼點，不補歷史翻譯。合成資料清除使用 updateTime 前置條件。
 
 正式 OA 保持既有 9/21 回復版本。開發、離線測試、獨立驗證、DEV 部署與手機操作驗收分別記錄，不互相替代。
 

@@ -205,3 +205,14 @@ it("a conflicting session retry never performs a second distinct 200-row search"
   vi.spyOn(test.store, "transitionReport").mockImplementation(async (_owner, _event, transition) => {await transition(session); await transition({...session, search: {...session.search, start: 1}}); return null;});
   const search = vi.spyOn(test.store, "search"); await expect(test.report("keyword")).rejects.toThrow("quality_search_conflict"); expect(search).toHaveBeenCalledOnce();
 });
+
+it("stores exact NMT content with safe projection, keeps first completion, and initializes absent captures to null", async () => {
+  const t = setup(); await t.store.saveOriginal(original); expect(t.docs(QUALITY_MESSAGES_COLLECTION)[0]).toMatchObject({nmtInputContents: null, nmtOutputContents: null});
+  const captured = {...completion, nmtInputContents: ['<div>A &amp; B</div>\r\n', "😀"], nmtOutputContents: {translations: ["raw", null, ""], glossaryTranslations: ["glossary raw"], secret: "do-not-save"}};
+  await t.store.complete(original, captured); await t.store.complete(original, {...completion, nmtInputContents: ["changed"], nmtOutputContents: {translations: ["changed"]}});
+  expect(t.docs(QUALITY_MESSAGES_COLLECTION)[0]).toMatchObject({nmtInputContents: captured.nmtInputContents, nmtOutputContents: {translations: ["raw", null, ""], glossaryTranslations: ["glossary raw"]}}); expect(JSON.stringify(t.docs(QUALITY_MESSAGES_COLLECTION))).not.toContain("do-not-save");
+});
+it("stores rejected NMT contents while accepted translation remains null", async () => {
+  const t = setup(); await t.store.complete(original, {...completion, outcome: "failed", translatedText: null, replyText: "🚧", nmtInputContents: ["protected"], nmtOutputContents: {translations: ["rejected"]}});
+  expect(t.docs(QUALITY_MESSAGES_COLLECTION)[0]).toMatchObject({outcome: "failed", translatedText: null, nmtOutputContents: {translations: ["rejected"]}});
+});

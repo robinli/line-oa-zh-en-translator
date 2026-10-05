@@ -1,4 +1,4 @@
-import type {RestoredTextRange} from "./message-text.js";
+import type {RestoredTextRange, TextRange} from "./message-text.js";
 import {assertLiteralIntegrity, findLiteralMatches, type LiteralPlacement} from "./nmt-integrity.js";
 import {literalParagraphs, type LiteralManifest} from "./nmt-literal-policy.js";
 import {TranslationQualityError} from "./trade-policy.js";
@@ -43,6 +43,39 @@ function recoverPlacements(manifest: LiteralManifest, paragraph: number, body: s
   return result.sort((a, b) => a.start - b.start);
 }
 
+// Only an identified, exact configured-name span can be a redundant provider copy.
+// Keep the ordinary occurrence; native identities and other literal scopes stay strict.
+function repairRedundantNameCopies(manifest: LiteralManifest, bodies: readonly string[], placements: readonly LiteralPlacement[], spans: readonly TextRange[][], identified: ReadonlySet<string>) {
+  const sourceRanges = manifest.occurrences.map(item => ({start: item.start, length: item.length}));
+  const removals: Array<{tagged: LiteralPlacement; ordinary: TextRange}> = [];
+  for (const item of manifest.occurrences) {
+    if (!identified.has(item.id) || item.nativeRanges.length || item.reasons.length !== 1 || item.reasons[0] !== "configured-name" ||
+        findLiteralMatches(manifest.original, item, sourceRanges).length !== 1) continue;
+    const tagged = placements.find(place => place.id === item.id);
+    if (!tagged || !(spans[item.paragraph] ?? []).some(span => span.start === tagged.start && span.length === tagged.length)) continue;
+    const local = placements.filter(place => place.paragraph === item.paragraph);
+    const matches = findLiteralMatches(bodies[item.paragraph]!, item, local);
+    const ordinary = matches.filter(match => !(spans[item.paragraph] ?? []).some(span => overlaps(match, span)) &&
+      !local.some(place => overlaps(match, place)));
+    if (matches.length === 2 && ordinary.length === 1) removals.push({tagged, ordinary: ordinary[0]!});
+  }
+  if (!removals.length) return null;
+  const adjustedBodies = bodies.map((body, paragraph) => {
+    for (const {tagged} of removals.filter(item => item.tagged.paragraph === paragraph).sort((a, b) => b.tagged.start - a.tagged.start)) {
+      body = body.slice(0, tagged.start) + body.slice(tagged.start + tagged.length);
+    }
+    return body;
+  });
+  const adjustedPlacements = placements.map(place => {
+    const repair = removals.find(item => item.tagged.id === place.id);
+    const start = repair?.ordinary.start ?? place.start;
+    const removedBefore = removals.filter(item => item.tagged.paragraph === place.paragraph && item.tagged.start + item.tagged.length <= start)
+      .reduce((sum, item) => sum + item.tagged.length, 0);
+    return {...place, start: start - removedBefore};
+  }).sort((a, b) => a.paragraph - b.paragraph || a.start - b.start);
+  return {bodies: adjustedBodies, placements: adjustedPlacements};
+}
+
 export function createNmtTransport(manifest: LiteralManifest) {
   const mimeType = manifest.occurrences.length ? "text/html" as const : "text/plain" as const;
   const html = manifest.paragraphs.map((paragraph, index) => {
@@ -71,7 +104,7 @@ export function createNmtTransport(manifest: LiteralManifest) {
         if (text.length > 4500) throw new TranslationQualityError("output_too_long");
         return {text, ranges: []};
       }
-      const bodies: string[] = [], rawPlacements: LiteralPlacement[] = [], seen = new Set<string>();
+      const bodies: string[] = [], rawPlacements: LiteralPlacement[] = [], spanRanges: TextRange[][] = [], seen = new Set<string>();
       const parseBody = (htmlBody: string, index: number) => {
         let part = "", position = 0; const anchored: LiteralPlacement[] = [];
         const append = (raw: string) => {
@@ -86,6 +119,7 @@ export function createNmtTransport(manifest: LiteralManifest) {
           if (separators.test(span[2]!)) throw new TranslationQualityError("paragraph_structure_changed");
           const decoded = decodeNmtHtml(span[2]!);
           if (separators.test(decoded)) throw new TranslationQualityError("paragraph_structure_changed");
+          (spanRanges[index] ??= []).push({start: part.length, length: decoded.length});
           if (data.id !== undefined) {
             const occurrence = manifest.occurrences.find(item => item.id === data.id);
             if (!occurrence || occurrence.paragraph !== index || seen.has(occurrence.id)) throw new TranslationQualityError("exact_occurrence_changed");
@@ -115,7 +149,16 @@ export function createNmtTransport(manifest: LiteralManifest) {
         }
         if (response.slice(cursor).trim()) throw new TranslationQualityError("paragraph_structure_changed");
       }
-      assertLiteralIntegrity(manifest, bodies, rawPlacements);
+      try {assertLiteralIntegrity(manifest, bodies, rawPlacements);}
+      catch (error) {
+        if (!(error instanceof TranslationQualityError) || error.reason !== "exact_occurrence_changed") throw error;
+        const repaired = repairRedundantNameCopies(manifest, bodies, rawPlacements, spanRanges, seen);
+        if (!repaired) throw error;
+        // Repair is only a candidate: every original literal/paragraph invariant must pass again.
+        assertLiteralIntegrity(manifest, repaired.bodies, repaired.placements);
+        bodies.splice(0, bodies.length, ...repaired.bodies);
+        rawPlacements.splice(0, rawPlacements.length, ...repaired.placements);
+      }
       const paragraphs: string[] = [], placements: LiteralPlacement[] = [], ranges: RestoredTextRange[] = []; let text = "";
       for (const [index, body] of bodies.entries()) {
         let part = "", position = 0;

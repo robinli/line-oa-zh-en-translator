@@ -1,3 +1,4 @@
+import {copyNmtOutputContents, type NmtContentObserver} from "./nmt-content-capture.js";
 import {TranslationQualityError} from "./trade-policy.js";
 import type {DevEventOperationStore, DevEventSession} from "./dev-event-operation.js";
 import {createHash} from "node:crypto";
@@ -92,7 +93,7 @@ export interface WebhookLogger {
 export interface WebhookDependencies {
   eventOperationStore?: DevEventOperationStore;
   eventSession?: DevEventSession;
-  createEventTranslationProgram?: (session: DevEventSession) => (mode: TranslationMode) => TranslationProgram;
+  createEventTranslationProgram?: (session: DevEventSession, observer?: NmtContentObserver) => (mode: TranslationMode) => TranslationProgram;
   qualityStore?: TranslationQualityStore;
   qualityTrace?: QualityTrace;
   qualityMetadata?: (mode: TranslationMode, sourceLanguageCode?: string) => {engine: string; glossary: string | null; revision: string | null};
@@ -198,7 +199,10 @@ export async function processLineWebhook(
       const captured = eventDependencies;
       const eventSession = session;
       eventDependencies = {...captured, eventSession,
-        ...(dependencies.createEventTranslationProgram ? {getTranslationProgram: dependencies.createEventTranslationProgram(eventSession)} : {}),
+        ...(dependencies.createEventTranslationProgram ? {getTranslationProgram: dependencies.createEventTranslationProgram(eventSession, original ? {
+          onInput: contents => {trace.nmtInputContents = [...contents];},
+          onOutput: contents => {trace.nmtOutputContents = copyNmtOutputContents(contents);},
+        } : undefined)} : {}),
         settingsStore: {
           getSettings: id => eventSession.timed("settings", () => captured.settingsStore.getSettings(id)),
           setModeAndEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setModeAndEnabled(...args)),

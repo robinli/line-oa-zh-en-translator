@@ -37,7 +37,7 @@ function fixture(t) {
 
 function compiled(plan) {
   mkdirSync(resolve(plan.output, 'functions/lib'));
-  for (const name of ['index.js', 'nmt-controlled-client.js', 'nmt-isolation.js']) writeFileSync(resolve(plan.output, 'functions/lib', name), '// built in isolated package\r\n');
+  for (const name of ['index.js', 'nmt-controlled-client.js', 'nmt-content-capture.js', 'nmt-isolation.js']) writeFileSync(resolve(plan.output, 'functions/lib', name), '// built in isolated package\r\n');
   writeFileSync(resolve(plan.output, '.local/evidence/test-stale-freeze.json'), '{"contractHash":"changed"}\r\n');
 }
 test('complete package contains root/config/glossary inputs and freshly built entries, without copying production or historical data', t => {
@@ -284,4 +284,9 @@ test('direct package requires the explicit directive module even when all other 
     }
   }}), /Missing compiled deployment entry: lib\/nmt-exact-directives\.js/);
   assert.equal(JSON.parse(readFileSync(resolve(options.root, options.out, 'dev-package.json'))).status, 'failed');
+});
+
+test('packaging rejects a missing NMT content capture module before deployment', t => {
+ const options=fixture(t);
+ assert.throws(()=>prepareDevPackage(options,{verify:plan=>{compiled(plan); const file=resolve(plan.output,'functions/lib/nmt-content-capture.js');assert.equal(dirname(file),resolve(plan.output,'functions/lib'));rmSync(file);}}),/Missing compiled deployment entry: lib\/nmt-content-capture.js/);
 });

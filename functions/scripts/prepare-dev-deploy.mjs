@@ -10,7 +10,7 @@ export const DEV_PROJECT = 'line-auto-translate-bot-dev';
 const rootFiles = ['package.json', 'firebase.json', '.firebaserc', 'scripts/check-local.ps1'];
 const functionFiles = ['package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'vitest.config.mts'];
 const sourceDirectories = ['src', 'scripts', 'evaluation', 'glossaries', 'config'];
-const builtEntries = ['index.js', 'nmt-controlled-client.js', 'nmt-isolation.js'];
+const builtEntries = ['index.js', 'nmt-controlled-client.js', 'nmt-content-capture.js', 'nmt-isolation.js'];
 const stateFile = 'dev-package.json';
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 const text = (path, value) => writeFileSync(path, value.replace(/\r?\n/g, '\r\n'), 'utf8');
