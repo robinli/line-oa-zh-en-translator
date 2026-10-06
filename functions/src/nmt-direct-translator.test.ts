@@ -112,7 +112,7 @@ describe("literal manifest and transport integrity", () => {
   it("preserves empty paragraphs and source CRLF; harmless attribute order, quotes and casing are accepted", () => {
     const text = "Check PH-BK.\r\n\r\nThen 30%.";
     const w = createNmtTransport(createLiteralManifest(text));
-    const out = w.contents[0]!.replace('translate="no" class="notranslate" id="l0"', "ID='l0' CLASS='notranslate' TRANSLATE='no'").replace("Check", "Confirm");
+    const out = w.contents[0]!.replace('translate="no" id="l0"', "ID='l0' CLASS='notranslate' TRANSLATE='no'").replace("Check", "Confirm");
     expect(w.decode(out).text).toBe(text.replace("Check", "Confirm"));
   });
   it.each([
@@ -123,10 +123,12 @@ describe("literal manifest and transport integrity", () => {
     (s: string) => s.replace('id="l0"', 'id="l99"'),
     (s: string) => s.replace('id="l0"', 'id="l0" id="l0"'),
     (s: string) => s.replace("</div>", "<script>evil()</script></div>"),
-    (s: string) => s.replace('class="notranslate"', 'onclick="evil()"'),
+    (s: string) => s.replace('translate="no"', 'onclick="evil()"'),
   ])("rejects corruption without restoring a changed source literal", mutate => {
     const w = createNmtTransport(createLiteralManifest("Check PH-BK."));
-    expect(() => w.decode(mutate(w.contents[0]!))).toThrow();
+    const corrupted = mutate(w.contents[0]!);
+    expect(corrupted).not.toBe(w.contents[0]);
+    expect(() => w.decode(corrupted)).toThrow();
   });
   it("rejects cross-paragraph literal movement and missing/plain paragraph structure", () => {
     const w = createNmtTransport(createLiteralManifest("Check PH-BK.\nThen 30%."));

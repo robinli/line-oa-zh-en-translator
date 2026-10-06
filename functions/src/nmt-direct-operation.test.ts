@@ -109,7 +109,7 @@ it("delivers a preserved configured name after provider markup loss and never re
   expect(s.deps.replier.replyText).toHaveBeenCalledExactlyOnceWith("PRIVATE", translatedText);
   expect(s.deps.failureStore!.save).not.toHaveBeenCalled();
   expect(s.row("name")).toMatchObject({providerStatus: "provider_succeeded", translationStatus: "validated", deliveryStatus: "sent",
-    telemetry: {adapterVersion: "nmt-direct-v1.3", protectedCounts: {"configured-name": 1}, semanticEvaluation: "not_evaluated"}});
+    telemetry: {adapterVersion: "nmt-direct-v1.4", protectedCounts: {"configured-name": 1}, semanticEvaluation: "not_evaluated"}});
 });
 it("keeps a changed configured name rejected and records only the safe reason", async () => {
   const s = setup(), source = "Shan requested bulk bags. Please confirm the packaging requirements.";
@@ -193,7 +193,7 @@ it("records raw blank variation while delivering the plain source layout once", 
   expect(s.send.mock.calls[0]![0]).toMatchObject({mimeType: "text/plain", contents: [source]});
   expect(s.deps.replier.replyText).toHaveBeenCalledExactlyOnceWith("PRIVATE", translatedText);
   expect(s.complete.mock.calls[0]![1]).toMatchObject({nmtInputContents: [source], nmtOutputContents: {translations: [raw]}, translatedText, replyText: translatedText, outcome: "translated"});
-  expect(s.row("plain-blanks")).toMatchObject({translationStatus: "validated", telemetry: {adapterVersion: "nmt-direct-v1.3", semanticEvaluation: "not_evaluated"}});
+  expect(s.row("plain-blanks")).toMatchObject({translationStatus: "validated", telemetry: {adapterVersion: "nmt-direct-v1.4", semanticEvaluation: "not_evaluated"}});
 });
 it("retains rejected raw output when a plain content line is missing", async () => {
   const s = setup(), source = "Please confirm the labels.\nPlease load the crate.", raw = "請確認標籤。";

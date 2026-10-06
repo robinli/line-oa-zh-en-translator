@@ -88,3 +88,5 @@ Node 22 的實際隔離包已通過型別檢查、建置、1,539 項應用、45 
 2026-10-05 html-name-copy-20261005-final1 已依「部署到 DEV」授權，經標準 launcher 與完整 Firebase predeploy 發布 linewebhook-00013-gug／ACTIVE／100%，430 檔凍結、64 檔／2,178 應用與 85 工具檢查通過；獨立 verifier 確認 276 個實測應用檔逐 byte 相同，沿用 4 筆真實 NMT，dotenv bytes 沿用 nmt-content-20261003-final1，現有別名不變。212 個雲端來源及零翻譯健康檢查通過，Vertex AI 仍 DISABLED；HNC-I01／既有語意 findings 及手機驗收保持未結案。證據 .local/html-name-copy-deploy-20261005/，詳 [修復與部署](NMT固定主路徑交付20261002.md#html-冗餘人名保護副本修復2026-10-05)。
 
 2026-10-05 plain-blank-lines-20261005-final1 已依「改進這個問題，部署 DEV」授權發布 linewebhook-00014-qoh／ACTIVE／100%；431 檔封裝獨立驗證、65 檔／2,198 應用與 85 工具完整 verify／predeploy 通過，278 個凍結應用檔及 212 個雲端來源逐 byte 相同。3 筆真實 NMT 驗證本例修復、來源空行保留及 HTML 反例不放寬，dotenv 原樣沿用 html-name-copy-20261005-final1，現有別名不變。部署零翻譯健康檢查通過，HNC-I01／既有語意品質與手機驗收仍待完成，詳 [純文字空白行修復](NMT固定主路徑交付20261002.md#純文字空白行修復2026-10-05)。
+
+2026-10-06 compact-html-20261006-final1 已依使用者授權發布 DEV linewebhook-00015-lap／ACTIVE／100%；442 檔隔離包獨立核對、67 檔／2,230 應用與 85 工具、完整 Firebase predeploy、220 檔雲端來源及零翻譯健康檢查通過。dotenv 原樣沿用 plain-blank-lines-20261005-final1，既有別名及啟用 API 保持，未部署 PRD 或發送真人 LINE；詳 [HTML 精簡與部署](NMT精簡HTML傳輸20261006.md)。

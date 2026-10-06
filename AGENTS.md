@@ -17,6 +17,7 @@
 核心翻譯流程固定為：原文 → 保護必要原樣片段 → NMT → 原樣片段完整性檢查 → LINE。
 
 - 一般程式開發由主 Agent 規劃、實作及測試，完成後委派一位 verifier 獨立驗證；單純問答、文件、格式及 Agent 設定調整由主 Agent 檢查即可。
+- 使用者指定 [翻譯自我改善 Skill](.agents/skills/translation-self-improvement/SKILL.md) 的完整流程時，由主 Agent 按 Skill 分步控管 planner／implementer／verifier 與交接文件；第 5 步 DEV 部署及核對完成後通知使用者，等待該版本人工複測通過及要求繼續，才承接 PRD。NMT 本身限制先追蹤，沒有可安全修正的程式項目就交付分析，不為完成步驟而開發或部署。
 - 大型跨模組或需求仍有實質歧義時，才按需要委派 planner／implementer；不固定啟動三個角色，也不層層再委派。
 - 派工必須明確選用 agent_type（planner／implementer／verifier）；task_name 只是名稱。預設 fork_turns="none"，附足夠的需求、檔案責任、驗收條件及證據位置。
 - 專案主模型為 GPT-6.1 Sol，主 Agent 推理沿用任務／UI 選擇，本機保留未強制指定的設定；一般開發未指定時建議 High，標準子角色固定 Sol／high，困難任務才明確選用對應 _xhigh 角色，開工核對實際值一次。
