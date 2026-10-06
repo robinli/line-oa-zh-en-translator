@@ -38,7 +38,7 @@ describe("plain blank lines as source presentation", () => {
     const first = '<div id="p0"><span id="l0">Shan</span>要求袋子。</div>', last = '<div id="p2"><span id="l1">Wei</span>要求標籤。</div>';
     expect(wire.mimeType).toBe("text/html");
     expect(wire.decode(first + '<div id="p1"></div>' + last).text).toBe("Shan要求袋子。\n\nWei要求標籤。");
-    expect(() => wire.decode(first + last)).toThrow("paragraph_structure_changed");
+    expect(wire.decode(first + last).text).toBe("Shan要求袋子。\n\nWei要求標籤。");
     expect(() => wire.decode(first.replace("要求袋子。", "要求袋子。\n\n") + '<div id="p1"></div>' + last)).toThrow("paragraph_structure_changed");
   });
 });

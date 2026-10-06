@@ -12,7 +12,7 @@ const wire = () => createNmtTransport(createLiteralManifest(source));
 describe("identified redundant configured-name copies", () => {
   it("repairs only the redundant tagged copy, preserving the provider body and input bytes", async () => {
     const before = wire().contents;
-    expect(before).toEqual(['<div id="p0"><span translate="no" class="notranslate" id="l0">Shan</span> requested bags. Please confirm the labels.</div>']);
+    expect(before).toEqual(['<div id="p0"><span translate="no" id="l0">Shan</span> requested bags. Please confirm the labels.</div>']);
     const send = vi.fn(async () => [{translations: [{translatedText: raw}]}] as [NmtResponse]);
     const translator = new NmtDirectTranslator({projectId, profile: "nmt-direct-v1"}, {translateText: send});
     expect(await translator.translate(source, "en", "zh-TW")).toBe("Shan 要求大袋請確認標籤。");

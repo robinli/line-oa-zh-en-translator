@@ -88,10 +88,14 @@ function alignPlainParagraphs(manifest: LiteralManifest, translated: readonly st
 }
 export function createNmtTransport(manifest: LiteralManifest) {
   const mimeType = manifest.occurrences.length ? "text/html" as const : "text/plain" as const;
-  const html = manifest.paragraphs.map((paragraph, index) => {
+  const localBlank = manifest.paragraphs.map((paragraph, index) => /^[\t\p{Zs}]*$/u.test(paragraph.text) &&
+    !manifest.occurrences.some(item => item.paragraph === index));
+  const transmitted = manifest.paragraphs.flatMap((_, index) => localBlank[index] ? [] : [index]);
+  const html = transmitted.map(index => {
+    const paragraph = manifest.paragraphs[index]!;
     let body = "", cursor = paragraph.start;
     for (const item of manifest.occurrences.filter(value => value.paragraph === index)) {
-      body += escapeNmtHtml(manifest.original.slice(cursor, item.start)) + '<span translate="no" class="notranslate" id="' + item.id + '">' + escapeNmtHtml(item.value) + "</span>";
+      body += escapeNmtHtml(manifest.original.slice(cursor, item.start)) + '<span translate="no" id="' + item.id + '">' + escapeNmtHtml(item.value) + "</span>";
       cursor = item.start + item.length;
     }
     return '<div id="p' + index + '">' + body + escapeNmtHtml(manifest.original.slice(cursor, paragraph.start + paragraph.text.length)) + "</div>";
@@ -119,7 +123,8 @@ export function createNmtTransport(manifest: LiteralManifest) {
         if (text.length > 4500) throw new TranslationQualityError("output_too_long");
         return {text, ranges: []};
       }
-      const bodies: string[] = [], rawPlacements: LiteralPlacement[] = [], spanRanges: TextRange[][] = [], seen = new Set<string>();
+      const bodies = manifest.paragraphs.map((paragraph, index) => localBlank[index] ? paragraph.text : "");
+      const rawPlacements: LiteralPlacement[] = [], spanRanges: TextRange[][] = [], seen = new Set<string>();
       const parseBody = (htmlBody: string, index: number) => {
         let part = "", position = 0; const anchored: LiteralPlacement[] = [];
         const append = (raw: string) => {
@@ -147,18 +152,24 @@ export function createNmtTransport(manifest: LiteralManifest) {
           part += decoded; position = span.index + span[0].length;
         }
         append(htmlBody.slice(position));
-        bodies.push(part); rawPlacements.push(...recoverPlacements(manifest, index, part, anchored));
+        if (localBlank[index] && !/^[\t\p{Zs}]*$/u.test(part)) throw new TranslationQualityError("paragraph_structure_changed");
+        bodies[index] = localBlank[index] ? manifest.paragraphs[index]!.text : part;
+        rawPlacements.push(...recoverPlacements(manifest, index, part, anchored));
       };
       let cursor = 0;
       const divs = [...response.matchAll(/<div\b([^>]*)>([\s\S]*?)<\/div\s*>/giu)];
       if (!divs.length) {
-        // A single paragraph has unambiguous ownership even if its wrapper disappeared.
-        if (manifest.paragraphs.length !== 1) throw new TranslationQualityError("paragraph_structure_changed");
-        parseBody(response, 0);
+        // Only one transmitted paragraph has unambiguous ownership without its wrapper.
+        if (transmitted.length !== 1) throw new TranslationQualityError("paragraph_structure_changed");
+        parseBody(response, transmitted[0]!);
       } else {
-        for (const div of divs) {
+        // Accept compact or complete source sequences; never guess partial blank-row edits.
+        const sequence = divs.length === transmitted.length ? transmitted :
+          divs.length === manifest.paragraphs.length ? manifest.paragraphs.map((_, index) => index) : null;
+        if (!sequence) throw new TranslationQualityError("paragraph_structure_changed");
+        for (const [position, div] of divs.entries()) {
           if (response.slice(cursor, div.index).trim()) throw new TranslationQualityError("paragraph_structure_changed");
-          const index = bodies.length, attrs = attributes(div[1]!, ["id"]);
+          const index = sequence[position]!, attrs = attributes(div[1]!, ["id"]);
           if (!manifest.paragraphs[index] || attrs.id !== undefined && attrs.id !== "p" + index) throw new TranslationQualityError("paragraph_structure_changed");
           parseBody(div[2]!, index); cursor = div.index + div[0].length;
         }
@@ -176,6 +187,9 @@ export function createNmtTransport(manifest: LiteralManifest) {
       }
       const paragraphs: string[] = [], placements: LiteralPlacement[] = [], ranges: RestoredTextRange[] = []; let text = "";
       for (const [index, body] of bodies.entries()) {
+        if (localBlank[index]) {
+          paragraphs.push(body); text += body + manifest.paragraphs[index]!.separator; continue;
+        }
         let part = "", position = 0;
         const append = (value: string) => {
           const displayed = present(value);

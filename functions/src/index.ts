@@ -7,6 +7,8 @@ import {FirestoreTranslationFailureStore} from "./translation-failure-store.js";
 import {ControlledNmtClient, AuthenticatedNmtTransport} from "./nmt-controlled-client.js";
 import {FirestoreNmtBudget} from "./nmt-budget.js";
 import {NMT_TEST_PROJECT, NMT_RUNTIME_ACCOUNT, NMT_GLOSSARIES} from "./nmt-isolation.js";
+import {ProductionNmtClient} from "./production-nmt-client.js";
+import {PRODUCTION_PROJECT, PRODUCTION_RUNTIME_ACCOUNT, isSupportedRuntimeProject} from "./production-target.js";
 import {logger} from "firebase-functions";
 import {defineInt, defineSecret, defineString, projectID} from "firebase-functions/params";
 import {onRequest} from "firebase-functions/v2/https";
@@ -50,6 +52,10 @@ const translationFailureStore = new FirestoreTranslationFailureStore(getFirestor
 const conversationSettingsStore = new FirestoreConversationSettingsStore(getFirestore(firebaseApp));
 
 function controlledClient(session?: DevEventSession, profile: NmtRequestProfile = "legacy-glossary", observer?: NmtContentObserver) {
+  if (projectID.value() === PRODUCTION_PROJECT) {
+    if (runtimeServiceAccount.value() !== PRODUCTION_RUNTIME_ACCOUNT || !session || !["nmt-direct-v1", "legacy-glossary"].includes(profile)) throw new Error("Production runtime target mismatch");
+    return new ProductionNmtClient(session, profile, observer);
+  }
   if (projectID.value() !== NMT_TEST_PROJECT || runtimeServiceAccount.value() !== NMT_RUNTIME_ACCOUNT) throw new Error("Isolated NMT runtime target mismatch");
   const transport = new AuthenticatedNmtTransport(undefined, observer);
   return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", () => transport.identity(), true, session, profile);
@@ -61,6 +67,7 @@ const eventTranslationProgram = (session: DevEventSession, observer?: NmtContent
     logger.warn("LINE mention aliases are disabled because configuration is invalid.");
   }
   const profile = resolveNmtRuntimeProfile(translationEngine.value(), nmtRequestProfile.value());
+  if (projectID.value() === PRODUCTION_PROJECT && profile !== "nmt-direct-v1") throw new Error("Production requires fixed NMT without glossary");
   const client = controlledClient(session, profile, observer);
   return {
     translator: createTranslator({
@@ -140,7 +147,7 @@ export const lineWebhook = onRequest(
         replier: new LineMessagingApiReplier(lineChannelAccessToken.value()),
         settingsStore: conversationSettingsStore,
         failureStore: translationFailureStore,
-        qualityStore: projectID.value() === NMT_TEST_PROJECT ? new FirestoreTranslationQualityStore(getFirestore(firebaseApp), {projectId: projectID.value(), revision: process.env.K_REVISION}) : undefined,
+        qualityStore: isSupportedRuntimeProject(projectID.value()) ? new FirestoreTranslationQualityStore(getFirestore(firebaseApp), {projectId: projectID.value(), revision: process.env.K_REVISION}) : undefined,
         qualityMetadata: (mode, source) => ({engine: mode === "zh-vi" ? "general/nmt" : translationEngine.value(),
           glossary: mode === "zh-vi" || !source || translationEngine.value() === "nmt-direct" && nmtRequestProfile.value() === "nmt-direct-v1" ? null : source === "zh-TW" ? NMT_GLOSSARIES.zhEn : NMT_GLOSSARIES.enZh,
           revision: process.env.K_REVISION ?? null}),

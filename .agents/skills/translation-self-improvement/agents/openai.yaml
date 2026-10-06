@@ -1,0 +1,5 @@
+interface:
+  display_name: "翻譯自我改善"
+  short_description: "由主 Agent 分步派工分析 PRD 翻譯記錄，完成 DEV 後交付人工複測"
+policy:
+  allow_implicit_invocation: true

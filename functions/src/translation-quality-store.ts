@@ -1,7 +1,7 @@
 import {copyNmtOutputContents, type NmtOutputContents} from "./nmt-content-capture.js";
 import {createHash} from "node:crypto";
 import {FieldPath, type Firestore} from "firebase-admin/firestore";
-import {NMT_TEST_PROJECT} from "./nmt-isolation.js";
+import {isSupportedRuntimeProject} from "./production-target.js";
 
 export const QUALITY_MESSAGES_COLLECTION = "lineTranslationMessages";
 export const QUALITY_CASES_COLLECTION = "lineTranslationErrorCases";
@@ -98,7 +98,7 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
   private readonly now: () => Date;
   constructor(private readonly firestore: Firestore, private readonly options: {projectId: string; revision?: string; now?: () => Date}) {this.now = options.now ?? (() => new Date());}
   async getConfig(): Promise<QualityConfig | null> {
-    if (this.options.projectId !== NMT_TEST_PROJECT) return null;
+    if (!isSupportedRuntimeProject(this.options.projectId)) return null;
     const config = parseQualityConfig((await this.firestore.doc(QUALITY_CONFIG_PATH).get()).data());
     if (!config) return null;
     const known = new Set(config.groups.map(group => group.id));
@@ -111,13 +111,13 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
     return config;
   }
   async getRecordingEnabled(groupId: string): Promise<boolean> {
-    if (this.options.projectId !== NMT_TEST_PROJECT || !isQualityGroupId(groupId)) return false;
+    if (!isSupportedRuntimeProject(this.options.projectId) || !isQualityGroupId(groupId)) return false;
     const value = (await this.firestore.collection(RECORDING_GROUPS_COLLECTION).doc(groupId).get()).get("recordingEnabled");
     if (value !== undefined && typeof value !== "boolean") throw new Error("invalid_recording_setting");
     return value !== false;
   }
   async setRecordingEnabled(groupId: string, enabled: boolean, changedBy: string, eventId: string, eventTime: number): Promise<{enabled: boolean; applied: boolean}> {
-    if (this.options.projectId !== NMT_TEST_PROJECT || !isQualityGroupId(groupId) || !changedBy || !eventId || !Number.isFinite(eventTime) || Math.abs(eventTime) > 8640000000000000) throw new Error("invalid_recording_command");
+    if (!isSupportedRuntimeProject(this.options.projectId) || !isQualityGroupId(groupId) || !changedBy || !eventId || !Number.isFinite(eventTime) || Math.abs(eventTime) > 8640000000000000) throw new Error("invalid_recording_command");
     const ref = this.firestore.collection(RECORDING_GROUPS_COLLECTION).doc(groupId);
     const receipt = ref.collection("recordingCommands").doc(hash([eventId]));
     return this.firestore.runTransaction(async transaction => {
@@ -134,7 +134,7 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
   async saveOriginal(record: QualityOriginal): Promise<void> {await this.persist(record);}
   async complete(record: QualityOriginal, completion: QualityCompletion): Promise<void> {await this.persist(record, completion);}
   private async persist(record: QualityOriginal, completion?: QualityCompletion): Promise<void> {
-    if (this.options.projectId !== NMT_TEST_PROJECT) return;
+    if (!isSupportedRuntimeProject(this.options.projectId)) return;
     const ref = this.firestore.collection(QUALITY_MESSAGES_COLLECTION).doc(qualityMessageId(record));
     await this.firestore.runTransaction(async transaction => {
       const existing = await transaction.get(ref);
@@ -177,7 +177,7 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
     return {messages, cursor, scanned};
   }
   async transitionReport(ownerId: string, eventId: string, transition: (session: ReportSession | null) => Promise<ReportTransition>): Promise<string | null> {
-    if (this.options.projectId !== NMT_TEST_PROJECT) return null;
+    if (!isSupportedRuntimeProject(this.options.projectId)) return null;
     const sessionRef = this.firestore.collection(QUALITY_SESSIONS_COLLECTION).doc(hash([ownerId]));
     const receiptRef = sessionRef.collection("events").doc(hash([eventId]));
     return this.firestore.runTransaction(async transaction => {

@@ -5,9 +5,10 @@ import {createNmtTransport} from "./nmt-transport-codec.js";
 import {resolveNmtLocalPhrase} from "./nmt-local-phrases.js";
 import {assertNmtProfileRequest, type DirectNmtProfile} from "./nmt-request-profile.js";
 import {NMT_TEST_PROJECT, NMT_GLOSSARIES} from "./nmt-isolation.js";
+import {PRODUCTION_PROJECT} from "./production-target.js";
 import type {NmtTransport} from "./nmt-controlled-client.js";
 
-export const NMT_DIRECT_ADAPTER_VERSION = "nmt-direct-v1.3";
+export const NMT_DIRECT_ADAPTER_VERSION = "nmt-direct-v1.4";
 export interface NmtDirectMetric {
   engine: "nmt-direct"; profile: DirectNmtProfile; adapterVersion: string; protectionVersion: string;
   validationScope: "literal-integrity"; semanticEvaluation: "not_evaluated";
@@ -23,7 +24,7 @@ export class NmtDirectServiceError extends Error {
 let traditional: ((text: string) => string) | undefined;
 export class NmtDirectTranslator implements Translator {
   public constructor(private readonly options: NmtDirectOptions, private readonly client: NmtTransport) {
-    if (options.projectId !== NMT_TEST_PROJECT || !["nmt-direct-v1", "nmt-direct-glossary-v1"].includes(options.profile) || !client) throw new Error("Invalid isolated NMT direct configuration");
+    if (![NMT_TEST_PROJECT, PRODUCTION_PROJECT].includes(options.projectId) || options.projectId === PRODUCTION_PROJECT && options.profile !== "nmt-direct-v1" || !["nmt-direct-v1", "nmt-direct-glossary-v1"].includes(options.profile) || !client) throw new Error("Invalid isolated NMT direct configuration");
   }
   public async translate(text: string, source: string, target: string, context?: TranslationContext): Promise<string> {
     return (await this.translateWithRanges(text, source, target, context)).text;
@@ -46,7 +47,7 @@ export class NmtDirectTranslator implements Translator {
       const parent = "projects/" + this.options.projectId + "/locations/us-central1";
       const request = {parent, model: parent + "/models/general/nmt", contents: wire.contents, mimeType: wire.mimeType, sourceLanguageCode: source, targetLanguageCode: target,
         ...(this.options.profile === "nmt-direct-glossary-v1" ? {glossaryConfig: {glossary: parent + "/glossaries/" + (source === "en" ? NMT_GLOSSARIES.enZh : NMT_GLOSSARIES.zhEn), ignoreCase: false as const, contextualTranslationEnabled: false as const}} : {})};
-      assertNmtProfileRequest(request, this.options.profile);
+      assertNmtProfileRequest(request, this.options.profile, this.options.projectId);
       inputCharacters = request.contents.reduce((sum, part) => sum + [...part].length, 0);
       if (inputCharacters > 30000) throw new TranslationQualityError("encoded_input_too_long");
       attempt = 1; apiCalled = "unknown";
