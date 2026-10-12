@@ -78,6 +78,13 @@ if(action==='deploy'||action==='deploy-check'){
  const env=readFileSync(envPath,'utf8');
  // Preserve the package's existing mention aliases; deployment does not update identities.
  const configuration=devRuntimeConfiguration(env);
+ // Preparation is separate: deployment only reads and verifies an existing environment-scoped secret/IAM.
+ if(configuration.solReviewEnabled){
+  const versions=JSON.parse(g('secrets','versions','list','OPENAI_API_KEY','--format=json'));
+  if(!versions.some(v=>v.state==='ENABLED'))throw Error('DEV OpenAI secret not prepared');
+  const policy=JSON.parse(g('secrets','get-iam-policy','OPENAI_API_KEY','--format=json'));
+  if(!policy.bindings?.some(b=>b.role==='roles/secretmanager.secretAccessor'&&b.members?.includes('serviceAccount:'+runtime)))throw Error('DEV OpenAI secret permission not prepared');
+ }
  if(existsSync(resolve(root,'functions/.env.line-auto-translate-bot'))||existsSync(resolve(root,'functions/.env')))throw Error('Unscoped/production dotenv prohibited in test deploy');
  const db=getFirestore(initializeApp({projectId:project}));
  try{const ledger=validateNmtLedger((await db.doc(NMT_LEDGER_PATH).get()).data(),project);if(ledger.version===2)validateNmtPolicyHistory((await db.doc(NMT_MIGRATION_PATH).get()).data(),ledger);}finally{await db.terminate();}

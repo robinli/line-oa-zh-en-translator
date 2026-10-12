@@ -1,3 +1,4 @@
+import {deadlineFirestore} from "./translation-deadline.js";
 import {createHash, randomUUID} from "node:crypto";
 import type {TranslationMode} from "./domain.js";
 import type {FailureStage} from "./translation-failures.js";
@@ -27,7 +28,7 @@ export function translationFailureId(record: TranslationFailureRecord): string {
   return key ? createHash("sha256").update(JSON.stringify(key)).digest("hex") : randomUUID();
 }
 export class FirestoreTranslationFailureStore implements TranslationFailureStore {
-  constructor(private readonly firestore: FailureFirestore) {}
+  constructor(private readonly firestore: FailureFirestore) {this.firestore = deadlineFirestore(firestore);}
   async save(record: TranslationFailureRecord): Promise<void> {
     // Explicit projection excludes reply tokens, sender IDs, errors, translations and arbitrary extra fields.
     const data: Record<string, unknown> = {

@@ -1,3 +1,4 @@
+import {deadlineFirestore} from "./translation-deadline.js";
 import {isDeepStrictEqual} from "node:util";
 import type {Firestore} from "firebase-admin/firestore";
 import {NMT_TEST_PROJECT} from "./nmt-isolation.js";
@@ -83,7 +84,7 @@ export async function enableTrackingOnlyBudget(firestore: Firestore, projectId: 
   });
 }
 export class FirestoreNmtBudget implements BudgetStore {
-  public constructor(private readonly firestore: Firestore, private readonly projectId: string) {}
+  public constructor(private readonly firestore: Firestore, private readonly projectId: string) {this.firestore = deadlineFirestore(firestore);}
   public async reserve(category: NmtBudgetCategory, characters: number): Promise<void> {
     const ref = this.firestore.doc(NMT_LEDGER_PATH);
     await this.firestore.runTransaction(async transaction => {

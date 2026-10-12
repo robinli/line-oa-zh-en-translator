@@ -165,7 +165,7 @@ describe("GoogleCloudSpeechTranscriber", () => {
         },
       },
       content: audioContent,
-    });
+    }, {timeout: 15000, retry: {retryCodes: []}});
   });
 
   it("rejects an empty transcription response", async () => {

@@ -50,7 +50,13 @@ export function summarizeValidation(records) {
   result.validationScopes[value.validationScope==='literal-integrity'?'literal-integrity':'unknown']++;
   result.semanticEvaluation[value.semanticEvaluation==='not_evaluated'?'not_evaluated':'unknown']++;
  }
- return {...result,qualification:'Literal integrity is a limited validation scope; missing historical metadata is unknown. Translation or LINE success does not certify semantic correctness.'};
+ const solReview={reviewVerdicts:{OK:0,NOT_GOOD:0,UNCERTAIN:0,unknown:0},finalSources:{nmt:0,gpt:0,local:0,unknown:0},rewriteNotSemanticallyReviewed:0};
+ for(const row of records){const value=(row.telemetry??row).solReview;if(!value)continue;
+  solReview.reviewVerdicts[['OK','NOT_GOOD','UNCERTAIN'].includes(value.verdict)?value.verdict:'unknown']++;
+  solReview.finalSources[['nmt','gpt','local'].includes(value.finalSource)?value.finalSource:'unknown']++;
+  if(value.finalSource==='gpt'&&value.semanticEvaluation==='not_evaluated')solReview.rewriteNotSemanticallyReviewed++;
+ }
+ return {...result,solReview,qualification:'Literal integrity is a limited validation scope; missing historical metadata is unknown. Translation or LINE success does not certify semantic correctness.'};
 }
 export function summarize(messages,cases,storageDiagnostics) {
  const days={};

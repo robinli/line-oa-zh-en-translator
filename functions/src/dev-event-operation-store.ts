@@ -1,3 +1,5 @@
+import {deadlineFirestore} from "./translation-deadline.js";
+import {copySolReviewRecord, type SolStage} from "./sol-review-types.js";
 import type {Firestore} from "firebase-admin/firestore";
 import {PRODUCTION_PROJECT, PRODUCTION_OPERATIONS_COLLECTION, isSupportedRuntimeProject} from "./production-target.js";
 import {NMT_TEST_PROJECT} from "./nmt-isolation.js";
@@ -13,6 +15,14 @@ export function assertOperationOwner(value: unknown, owner: OperationOwner): Dev
 }
 // A commit acknowledgement can be lost. A later best-effort completion must not erase durable reservation/call uncertainty.
 export function completionTelemetry(record: DevEventOperation, telemetry: OperationTelemetry): OperationTelemetry {
+  if (record.telemetry.solReview) {
+    telemetry = {...telemetry, solReview: copySolReviewRecord(telemetry.solReview ?? record.telemetry.solReview)};
+    for (const stage of ["review", "rewrite"] as const) {
+      if (record.telemetry.solReview[stage].status !== "not_started" && telemetry.solReview![stage].status === "not_started") {
+        telemetry.solReview![stage] = {...record.telemetry.solReview[stage]};
+      }
+    }
+  }
   if (record.telemetry.reservedCharacters <= telemetry.reservedCharacters) return telemetry;
   const {reservedCharacters, wireCharacters, primaryTextWire, primaryMarkup, auxiliaryWire, apiCalled, outputCharacters} = record.telemetry;
   return {...telemetry, reservedCharacters, wireCharacters, primaryTextWire, primaryMarkup, auxiliaryWire, apiCalled, outputCharacters};
@@ -21,6 +31,7 @@ export class FirestoreDevEventOperationStore implements DevEventOperationStore {
   private readonly collection: string;
   constructor(private readonly firestore: Firestore, private readonly projectId: string, private readonly revision: string | null = null) {
     if (!isSupportedRuntimeProject(projectId)) throw new Error("operation_project_mismatch");
+    this.firestore = deadlineFirestore(firestore);
     this.collection = projectId === PRODUCTION_PROJECT ? PRODUCTION_OPERATIONS_COLLECTION : DEV_OPERATIONS_COLLECTION;
   }
   async claim(event: unknown): Promise<DevEventSession | null> {
@@ -53,6 +64,15 @@ export class FirestoreDevEventOperationStore implements DevEventOperationStore {
       transaction.update(ledgerRef, {...reserveNmtLedger(ledger, this.projectId, category, characters)});
       transaction.set(ref, operationData({...record, updatedAt: new Date().toISOString(), providerStatus: "provider_started", telemetry}));
     });
+  }
+  async beginSolStage(owner: OperationOwner, stage: SolStage, telemetry: OperationTelemetry): Promise<void> {
+    const ref = this.firestore.collection(this.collection).doc(owner.operationId);
+    await this.firestore.runTransaction(async transaction => {
+      const record = assertOperationOwner((await transaction.get(ref)).data(), owner);
+      if (record.deliveryStatus !== "not_attempted" || (record.telemetry.solReview?.[stage].status ?? "not_started") !== "not_started" ||
+        telemetry.solReview?.[stage].status !== "started") throw new Error("sol_stage_already_started");
+      transaction.set(ref, operationData({...record, updatedAt: new Date().toISOString(), telemetry: completionTelemetry(record, telemetry)}));
+    }, {maxAttempts: 2});
   }
   async update(owner: OperationOwner, patch: Parameters<DevEventOperationStore["update"]>[1], telemetry: OperationTelemetry): Promise<void> {
     const ref = this.firestore.collection(this.collection).doc(owner.operationId);

@@ -1,3 +1,5 @@
+import {deadlineFirestore} from "./translation-deadline.js";
+import {remainingTimeout, withinTime, deadlineSignal, assertDeadlineActive} from "./translation-deadline.js";
 import {ContentLimitError} from "./translation-failures.js";
 import type {TranslationMode} from "./domain.js";
 import type {RestoredTextRange} from "./message-text.js";
@@ -6,6 +8,8 @@ import {buildReplyMessages} from "./line-messages.js";
 import type {messagingApi} from "@line/bot-sdk";
 
 export interface TranslationContext {
+  quoteContext?: import("./sol-review-types.js").QuoteContext;
+  deadlineAtMs?: number;
   protectedRanges?: ReadonlyArray<{start: number; length: number}>;
   // Trusted literal scopes; never inferred from LINE identities or untrusted metadata.
   copyExactRanges?: ReadonlyArray<{start: number; length: number}>;
@@ -24,15 +28,15 @@ export interface TranscriptionResult {
 }
 
 export interface AudioTranscriber {
-  transcribe(audioContent: Buffer, languageCodes: string[]): Promise<TranscriptionResult>;
+  transcribe(audioContent: Buffer, languageCodes: string[], deadlineAtMs?: number): Promise<TranscriptionResult>;
 }
 
 export interface AudioContentLoader {
-  getMessageContent(messageId: string, maxBytes: number): Promise<Buffer>;
+  getMessageContent(messageId: string, maxBytes: number, deadlineAtMs?: number): Promise<Buffer>;
 }
 
 export interface LineReplier {
-  replyText(replyToken: string, text: string, context?: MentionReplyContext): Promise<void>;
+  replyText(replyToken: string, text: string, context?: MentionReplyContext, deadlineAtMs?: number): Promise<void>;
 }
 
 export interface ConversationSettings {
@@ -69,7 +73,7 @@ interface FirestoreClient {
 }
 
 export class FirestoreConversationSettingsStore implements ConversationSettingsStore {
-  public constructor(private readonly firestore: FirestoreClient) {}
+  public constructor(private readonly firestore: FirestoreClient) {this.firestore = deadlineFirestore(firestore);}
 
   public async getSettings(conversationId: string): Promise<ConversationSettings> {
     const snapshot = await this.conversationDocument(conversationId).get();
@@ -190,7 +194,7 @@ interface SpeechRecognitionResponse {
 }
 
 interface SpeechRecognitionClient {
-  recognize(request: SpeechRecognitionRequest): Promise<[
+  recognize(request: SpeechRecognitionRequest, options?: {timeout: number; retry: {retryCodes: number[]}}): Promise<[
     SpeechRecognitionResponse,
     ...unknown[],
   ]>;
@@ -251,20 +255,35 @@ export class GoogleCloudSpeechTranscriber implements AudioTranscriber {
   public async transcribe(
     audioContent: Buffer,
     languageCodes: string[],
+    deadlineAtMs?: number,
   ): Promise<TranscriptionResult> {
-    const client = await this.getClient();
-    const [response] = await client.recognize({
+    const request = {
       recognizer: `projects/${this.projectId}/locations/global/recognizers/_`,
-      config: {
-        autoDecodingConfig: {},
-        languageCodes,
-        model: "long",
-        features: {
-          enableAutomaticPunctuation: true,
-        },
-      },
+      config: {autoDecodingConfig: {}, languageCodes, model: "long", features: {enableAutomaticPunctuation: true}},
       content: audioContent,
-    });
+    };
+    let response: SpeechRecognitionResponse;
+    if (deadlineAtMs !== undefined && !this.client) {
+      // Native fetch makes cancellation include credentials, HTTP and response body.
+      const {GoogleAuth} = await import("google-auth-library");
+      remainingTimeout(deadlineAtMs);
+      const token = await new GoogleAuth({projectId: this.projectId, scopes: ["https://www.googleapis.com/auth/cloud-platform"]}).getAccessToken();
+      remainingTimeout(deadlineAtMs);
+      if (!token) throw new Error("Speech credentials unavailable.");
+      const result = await fetch("https://speech.googleapis.com/v2/" + request.recognizer + ":recognize", {
+        method: "POST", headers: {Authorization: "Bearer " + token, "content-type": "application/json", "x-goog-user-project": this.projectId},
+        body: JSON.stringify({config: request.config, content: audioContent.toString("base64")}), signal: deadlineSignal(deadlineAtMs),
+      });
+      remainingTimeout(deadlineAtMs);
+      if (!result.ok) throw new Error("Speech recognition unavailable.");
+      response = await result.json() as SpeechRecognitionResponse;
+      remainingTimeout(deadlineAtMs);
+    } else {
+      const client = await this.getClient();
+      remainingTimeout(deadlineAtMs);
+      [response] = await client.recognize(request, {timeout: remainingTimeout(deadlineAtMs), retry: {retryCodes: []}});
+      assertDeadlineActive();
+    }
 
     const transcript = (response.results ?? [])
       .map((result) => result.alternatives?.[0]?.transcript?.trim())
@@ -302,13 +321,37 @@ export class LineMessagingApiContentLoader implements AudioContentLoader {
     this.client = client;
   }
 
-  public async getMessageContent(messageId: string, maxBytes: number): Promise<Buffer> {
-    const client = await this.getClient();
-    const stream = await client.getMessageContent(messageId);
+  public async getMessageContent(messageId: string, maxBytes: number, deadlineAtMs?: number): Promise<Buffer> {
+    let stream: MessageContentStream;
+    if (deadlineAtMs !== undefined && !this.client) {
+      remainingTimeout(deadlineAtMs);
+      const response = await fetch("https://api-data.line.me/v2/bot/message/" + encodeURIComponent(messageId) + "/content",
+        {headers: {Authorization: "Bearer " + this.channelAccessToken}, signal: deadlineSignal(deadlineAtMs)});
+      remainingTimeout(deadlineAtMs);
+      if (!response.ok || !response.body) throw new Error("LINE audio content unavailable.");
+      const {Readable} = await import("node:stream");
+      remainingTimeout(deadlineAtMs);
+      stream = Readable.fromWeb(response.body as never);
+    } else {
+      const client = await this.getClient();
+      const get = async () => {
+        if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs);
+        const acquired = await client.getMessageContent(messageId);
+        try {if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs); assertDeadlineActive();}
+        catch (error) {acquired.destroy?.(); throw error;}
+        return acquired;
+      };
+      stream = deadlineAtMs === undefined ? await get() : await withinTime(get, remainingTimeout(deadlineAtMs));
+    }
     const chunks: Buffer[] = [];
     let totalBytes = 0;
 
+    const signal = deadlineAtMs === undefined ? undefined : deadlineSignal(deadlineAtMs);
+    const destroy = () => {stream.destroy?.();};
+    signal?.addEventListener("abort", destroy, {once: true});
+    try {
     for await (const chunk of stream) {
+      if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs);
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
       totalBytes += buffer.length;
       if (totalBytes > maxBytes) {
@@ -322,7 +365,9 @@ export class LineMessagingApiContentLoader implements AudioContentLoader {
       throw new Error("LINE Messaging API returned empty audio content.");
     }
 
+    if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs);
     return Buffer.concat(chunks, totalBytes);
+    } finally {signal?.removeEventListener("abort", destroy); if (signal?.aborted) destroy();}
   }
 
   private async getClient(): Promise<MessagingContentClient> {
@@ -347,26 +392,39 @@ export class LineMessagingApiReplier implements LineReplier {
     this.verifier = verifier ?? new LineGroupMemberVerifier(channelAccessToken);
   }
 
-  public async replyText(replyToken: string, text: string, context?: MentionReplyContext): Promise<void> {
+  public async replyText(replyToken: string, text: string, context?: MentionReplyContext, deadlineAtMs?: number): Promise<void> {
     const plainMessages = buildReplyMessages(text);
     let mentions = context?.mentions.slice(0, 20) ?? [];
     if (mentions.length && context) {
       const userIds = [...new Set(mentions.map((mention) => mention.userId))];
       const checks = await Promise.allSettled(userIds.map((userId) =>
-        this.verifier.isMember(context.groupId, userId)));
+        deadlineAtMs === undefined ? this.verifier.isMember(context.groupId, userId) :
+          withinTime(() => this.verifier.isMember(context.groupId, userId), remainingTimeout(deadlineAtMs, 3000))));
       const members = new Set(userIds.filter((_, index) =>
         checks[index]?.status === "fulfilled" && checks[index].value === true));
       mentions = mentions.filter((mention) => members.has(mention.userId));
     }
     const messages = buildReplyMessages(text, mentions);
-    const client = await this.getClient();
+    let client: MessagingClient;
+    if (deadlineAtMs !== undefined && !this.client) {
+      client = {replyMessage: async request => {
+        const response = await fetch("https://api.line.me/v2/bot/message/reply", {
+          method: "POST", headers: {Authorization: "Bearer " + this.channelAccessToken, "content-type": "application/json"},
+          body: JSON.stringify(request), signal: deadlineSignal(deadlineAtMs),
+        });
+        remainingTimeout(deadlineAtMs);
+        if (!response.ok) throw Object.assign(new Error("LINE request rejected."), {status: response.status});
+        await response.arrayBuffer(); remainingTimeout(deadlineAtMs);
+      }};
+    } else {client = await this.getClient(); assertDeadlineActive();}
     try {
+      if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs);
       await client.replyMessage({replyToken, messages});
     } catch (error: unknown) {
       const status = error && typeof error === "object" && "status" in error ? error.status : undefined;
       // Only a definite rejected request is safe to retry. Never retry a timeout or 5xx.
       if (status === 400 && messages.some((message) => message.type === "textV2")) {
-        try { await client.replyMessage({replyToken, messages: plainMessages}); return; } catch { /* sanitize below */ }
+        try { if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs); await client.replyMessage({replyToken, messages: plainMessages}); return; } catch { /* sanitize below */ }
       }
       throw new Error("LINE reply could not be delivered.");
     }

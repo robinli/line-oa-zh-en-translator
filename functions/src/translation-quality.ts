@@ -1,18 +1,16 @@
+import {withinTime, remainingTimeout, assertDeadlineActive} from "./translation-deadline.js";
 import type {WebhookDependencies} from "./webhook.js";
 import type {QualityCompletion, QualityConfig, QualityOriginal} from "./translation-quality-store.js";
 import {isQualityGroupId, qualityGroupName} from "./translation-quality-store.js";
 
 export interface QualityTrace extends QualityCompletion {}
 export async function qualityOperation<T>(operation: () => Promise<T>, dependencies: WebhookDependencies, eventId?: string): Promise<T | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([Promise.resolve().then(operation), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("quality_deadline")), 1500);
-    })]);
+    return await withinTime(operation, remainingTimeout(dependencies.solReviewEnabled ? dependencies.deadlineAtMs : undefined, 1500));
   } catch {
     dependencies.logger.error("Translation quality storage unavailable.", {reason: "quality_store_error", webhookEventId: eventId ?? null});
     return undefined;
-  } finally {if (timer) clearTimeout(timer);}
+  }
 }
 export function captureQualityOriginal(event: unknown, config: QualityConfig, now = new Date(), onMissingId?: (groupId: string) => void): QualityOriginal | null {
   if (!event || typeof event !== "object") return null;
@@ -33,20 +31,21 @@ export function captureQualityOriginal(event: unknown, config: QualityConfig, no
 export function traceQualityDependencies(dependencies: WebhookDependencies, trace: QualityTrace): WebhookDependencies {
   return {...dependencies, qualityTrace: trace,
     settingsStore: {
-      getSettings: async id => {const settings = await dependencies.settingsStore.getSettings(id); trace.translationMode = settings.translationMode; return settings;},
-      setModeAndEnabled: async (id, mode, by) => {await dependencies.settingsStore.setModeAndEnabled(id, mode, by); trace.translationMode = mode;},
+      getSettings: async id => {const settings = await dependencies.settingsStore.getSettings(id); assertDeadlineActive(); trace.translationMode = settings.translationMode; return settings;},
+      setModeAndEnabled: async (id, mode, by) => {await dependencies.settingsStore.setModeAndEnabled(id, mode, by); assertDeadlineActive(); trace.translationMode = mode;},
       setAudioTranscriptionEnabled: (...args) => dependencies.settingsStore.setAudioTranscriptionEnabled(...args),
       setTextTranslationEnabled: (...args) => dependencies.settingsStore.setTextTranslationEnabled(...args),
     },
-    replier: {replyText: async (token, text, context) => {
+    replier: {replyText: async (token, text, context, deadlineAtMs) => {
       trace.replyText = text;
       if (trace.outcome === "ignored") trace.outcome = "skipped";
       try {
         // Preserve argument arity for existing repliers and their tests.
-        if (context) await dependencies.replier.replyText(token, text, context);
+        if (deadlineAtMs !== undefined) await dependencies.replier.replyText(token, text, context, deadlineAtMs);
+        else if (context) await dependencies.replier.replyText(token, text, context);
         else await dependencies.replier.replyText(token, text);
-        trace.deliveryStatus = "sent";
-      } catch (error) {trace.deliveryStatus = "failed"; trace.reason ??= "line_reply_error"; throw error;}
+        assertDeadlineActive(); trace.deliveryStatus = "sent";
+      } catch (error) {assertDeadlineActive(); trace.deliveryStatus = "failed"; trace.reason ??= "line_reply_error"; throw error;}
     }},
   };
 }

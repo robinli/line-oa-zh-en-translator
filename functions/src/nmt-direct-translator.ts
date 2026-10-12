@@ -1,3 +1,4 @@
+import {requestTimeout, withinTime, assertDeadlineActive, currentDeadline} from "./translation-deadline.js";
 import type {Translator, TranslationContext} from "./services.js";
 import {TranslationQualityError} from "./trade-policy.js";
 import {NMT_LITERAL_POLICY_VERSION, createLiteralManifest} from "./nmt-literal-policy.js";
@@ -18,6 +19,7 @@ export interface NmtDirectMetric {
 export interface NmtDirectOptions {
   projectId: string; profile: DirectNmtProfile; protectedNames?: readonly string[]; onMetric?: (metric: NmtDirectMetric) => void;
 }
+export class NmtOutputRejected extends TranslationQualityError {}
 export class NmtDirectServiceError extends Error {
   public constructor() {super("NMT direct service is unavailable."); this.name = "NmtDirectServiceError";}
 }
@@ -30,6 +32,10 @@ export class NmtDirectTranslator implements Translator {
     return (await this.translateWithRanges(text, source, target, context)).text;
   }
   public async translateWithRanges(text: string, source: string, target: string, context?: TranslationContext) {
+    const {text: translated, ranges} = await this.translateCandidate(text, source, target, context);
+    return {text: translated, ranges};
+  }
+  public async translateCandidate(text: string, source: string, target: string, context?: TranslationContext) {
     const started = Date.now(); let attempt = 0, apiCalled: boolean | "unknown" = false, inputCharacters = 0, outputCharacters = 0;
     let outcome: NmtDirectMetric["outcome"] = "quality_rejected", reason: string | undefined;
     const protectedCounts: Record<string, number> = {};
@@ -42,7 +48,7 @@ export class NmtDirectTranslator implements Translator {
       const local = manifest.occurrences.length ? null : resolveNmtLocalPhrase(text, source, target, context);
       if (local || !wire.hasTranslatableBody) {
         outcome = "success"; outputCharacters = [...(local?.text ?? text)].length;
-        return {text: local?.text ?? text, ranges: manifest.occurrences.flatMap(item => item.nativeRanges.map(range => ({...range, sourceStart: range.start})))};
+        return {origin: "local" as const, text: local?.text ?? text, ranges: manifest.occurrences.flatMap(item => item.nativeRanges.map(range => ({...range, sourceStart: range.start})))};
       }
       const parent = "projects/" + this.options.projectId + "/locations/us-central1";
       const request = {parent, model: parent + "/models/general/nmt", contents: wire.contents, mimeType: wire.mimeType, sourceLanguageCode: source, targetLanguageCode: target,
@@ -52,7 +58,13 @@ export class NmtDirectTranslator implements Translator {
       if (inputCharacters > 30000) throw new TranslationQualityError("encoded_input_too_long");
       attempt = 1; apiCalled = "unknown";
       let response;
-      try {[response] = await this.client.translateText(request, {timeout: 15000, retry: {retryCodes: []}});}
+      try {
+        const timeout = requestTimeout(context?.deadlineAtMs);
+        const end = Date.now() + timeout;
+        const send = () => this.client.translateText(request, {timeout: 15000, retry: {retryCodes: []},
+          ...(context?.deadlineAtMs === undefined && currentDeadline() === undefined ? {} : {requestDeadlineAtMs: end})});
+        [response] = context?.deadlineAtMs === undefined && currentDeadline() === undefined ? await send() : await withinTime(send, timeout);
+      }
       catch {outcome = "service_error"; throw new NmtDirectServiceError();}
       apiCalled = true;
       const translations = this.options.profile === "nmt-direct-glossary-v1" ? response?.glossaryTranslations : response?.translations;
@@ -60,11 +72,17 @@ export class NmtDirectTranslator implements Translator {
       const translated = translations[0].translatedText;
       outputCharacters = [...translated].length;
       if (target === "zh-TW") traditional ??= (await import("opencc-js/cn2t")).Converter({from: "cn", to: "tw"});
-      const result = wire.decode(translated, target === "zh-TW" ? traditional : undefined);
-      outcome = "success"; return result;
+      assertDeadlineActive();
+      let result;
+      try {result = wire.decode(translated, target === "zh-TW" ? traditional : undefined);}
+      catch (error) {
+        if (error instanceof TranslationQualityError && ["exact_occurrence_changed", "paragraph_structure_changed"].includes(error.reason)) throw new NmtOutputRejected(error.reason);
+        throw error;
+      }
+      outcome = "success"; return {...result, origin: "nmt" as const};
     } catch (error) {reason = error instanceof TranslationQualityError ? error.reason : undefined; throw error;}
     finally {
-      try {this.options.onMetric?.({engine: "nmt-direct", profile: this.options.profile, adapterVersion: NMT_DIRECT_ADAPTER_VERSION,
+      try {assertDeadlineActive(); this.options.onMetric?.({engine: "nmt-direct", profile: this.options.profile, adapterVersion: NMT_DIRECT_ADAPTER_VERSION,
         protectionVersion: NMT_LITERAL_POLICY_VERSION, validationScope: "literal-integrity", semanticEvaluation: "not_evaluated",
         direction: source + ":" + target, attempt, elapsedMs: Date.now() - started, inputCharacters, outputCharacters,
         outcome, ...(reason ? {reason} : {}), apiCalled, protectedCounts});} catch { /* Advisory observation cannot change the result. */ }

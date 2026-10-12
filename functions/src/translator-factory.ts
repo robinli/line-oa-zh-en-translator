@@ -1,3 +1,6 @@
+import {SolReviewedTranslator} from "./sol-reviewed-translator.js";
+import type {SolClient} from "./sol-responses-client.js";
+import type {SolStageControl, SolReviewRecord} from "./sol-review-types.js";
 import {NmtDirectTranslator, type NmtDirectMetric, type NmtDirectOptions} from "./nmt-direct-translator.js";
 import type {NmtTransport} from "./nmt-controlled-client.js";
 import {NmtGlossaryTranslator, type NmtGlossaryClient, type NmtGlossaryMetric} from "./nmt-glossary-translator.js";
@@ -6,6 +9,7 @@ import {TranslationLlmTranslator, type TranslationLlmMetric} from "./translation
 import {GoogleCloudTranslator, type Translator} from "./services.js";
 
 export interface TranslationConfiguration {
+  solReview?: {client: SolClient; stages: SolStageControl; onRecord?: (record: SolReviewRecord) => void};
   engine: string;
   projectId: string;
   model: string;
@@ -23,8 +27,10 @@ export interface TranslationConfiguration {
 export function createTranslator(config: TranslationConfiguration): Translator {
   if (config.engine === "nmt-direct") {
     if (!config.nmtDirect) throw new Error("Missing NMT direct configuration.");
-    return new NmtDirectTranslator({projectId: config.projectId, profile: config.nmtDirect.profile,
+    const nmt = new NmtDirectTranslator({projectId: config.projectId, profile: config.nmtDirect.profile,
       protectedNames: config.protectedNames.split(",").map(name => name.trim()).filter(Boolean), onMetric: config.onNmtDirectMetric}, config.nmtDirect.client);
+    return config.solReview ? new SolReviewedTranslator(nmt, config.solReview.client, config.solReview.stages,
+      config.protectedNames.split(",").map(name => name.trim()).filter(Boolean), config.solReview.onRecord) : nmt;
   }
   if (config.engine === "nmt-glossary") {
     if (!config.nmtGlossary) throw new Error("Missing NMT glossary configuration.");
