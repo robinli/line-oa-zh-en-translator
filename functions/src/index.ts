@@ -1,3 +1,5 @@
+import {SolResponsesClient} from "./sol-responses-client.js";
+import {copySolReviewRecord} from "./sol-review-types.js";
 import type {NmtContentObserver} from "./nmt-content-capture.js";
 import {resolveNmtRuntimeProfile, type NmtRequestProfile} from "./nmt-request-profile.js";
 import {FirestoreDevEventOperationStore} from "./dev-event-operation-store.js";
@@ -10,7 +12,7 @@ import {NMT_TEST_PROJECT, NMT_RUNTIME_ACCOUNT, NMT_GLOSSARIES} from "./nmt-isola
 import {ProductionNmtClient} from "./production-nmt-client.js";
 import {PRODUCTION_PROJECT, PRODUCTION_RUNTIME_ACCOUNT, isSupportedRuntimeProject} from "./production-target.js";
 import {logger} from "firebase-functions";
-import {defineInt, defineSecret, defineString, projectID} from "firebase-functions/params";
+import {defineBoolean, defineInt, defineSecret, defineString, projectID} from "firebase-functions/params";
 import {onRequest} from "firebase-functions/v2/https";
 import {getApps, initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
@@ -27,6 +29,8 @@ import {createTranslator} from "./translator-factory.js";
 import {DEFAULT_PROTECTED_NAMES} from "./trade-policy.js";
 import {parseMentionAliases, type MentionAlias} from "./mentions.js";
 
+const openaiApiKey = defineSecret("OPENAI_API_KEY");
+const solReviewEnabled = defineBoolean("SOL_REVIEW_ENABLED", {default: false});
 const lineChannelSecret = defineSecret("LINE_CHANNEL_SECRET");
 const lineChannelAccessToken = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
 const lineOwnerUserId = defineSecret("LINE_OWNER_USER_ID");
@@ -58,7 +62,7 @@ function controlledClient(session?: DevEventSession, profile: NmtRequestProfile 
   }
   if (projectID.value() !== NMT_TEST_PROJECT || runtimeServiceAccount.value() !== NMT_RUNTIME_ACCOUNT) throw new Error("Isolated NMT runtime target mismatch");
   const transport = new AuthenticatedNmtTransport(undefined, observer);
-  return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", () => transport.identity(), true, session, profile);
+  return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", (deadlineAtMs) => transport.identity(deadlineAtMs), true, session, profile);
 }
 
 const eventTranslationProgram = (session: DevEventSession, observer?: NmtContentObserver) => createTranslationProgramRouter(() => {
@@ -80,6 +84,15 @@ const eventTranslationProgram = (session: DevEventSession, observer?: NmtContent
         glossaryZhEn: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.zhEn,
         glossaryEnZh: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.enZh, client},
       ...(profile === "legacy-glossary" ? {} : {nmtDirect: {profile, client}}),
+      ...(solReviewEnabled.value() ? {solReview: {
+        client: new SolResponsesClient(openaiApiKey.value()),
+        stages: {begin: (stage, record) => session.beginSolStage(stage, record),
+          finish: (stage, record) => session.finishSolStage(stage, record)},
+        onRecord: record => {
+          session.telemetry.solReview = copySolReviewRecord(record);
+          if (record.finalSource) {session.telemetry.reason = null; session.telemetry.failureStage = null;}
+        },
+      }} : {}),
       onNmtDirectMetric: metric => {
         Object.assign(session.telemetry, {engine: metric.engine, adapterVersion: metric.adapterVersion,
           protectionVersion: metric.protectionVersion, requestProfile: metric.profile,
@@ -126,9 +139,10 @@ export const lineWebhook = onRequest(
     maxInstances: 5,
     serviceAccount:
       runtimeServiceAccount,
-    secrets: [lineChannelSecret, lineChannelAccessToken, lineOwnerUserId],
+    secrets: [lineChannelSecret, lineChannelAccessToken, lineOwnerUserId, openaiApiKey],
   },
   async (request, response) => {
+    const receivedAtMs = Date.now();
     const signatureHeader = request.header("x-line-signature");
     const result = await processLineWebhook(
       {
@@ -137,6 +151,8 @@ export const lineWebhook = onRequest(
         signature: signatureHeader,
       },
       {
+        receivedAtMs,
+        solReviewEnabled: solReviewEnabled.value(),
         channelSecret: lineChannelSecret.value(),
         eventOperationStore: new FirestoreDevEventOperationStore(getFirestore(firebaseApp), projectID.value(), process.env.K_REVISION ?? null),
         createEventTranslationProgram: eventTranslationProgram,

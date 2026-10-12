@@ -1,3 +1,4 @@
+import {deadlineSignal} from "./translation-deadline.js";
 import {getMentionRanges, type TextRange, type RestoredTextRange} from "./message-text.js";
 
 export interface MentionAlias {alias: string; userId: string}
@@ -95,7 +96,7 @@ export class LineGroupMemberVerifier implements GroupMemberVerifier {
     try {
       const response = await this.request("https://api.line.me/v2/bot/group/" + groupId +
         "/member/" + userId, {headers: {Authorization: "Bearer " + this.channelAccessToken},
-        signal: AbortSignal.timeout(3000)});
+        signal: deadlineSignal(undefined, 3000)});
       if (!response.ok) return false;
       const profile: unknown = await response.json();
       return !!profile && typeof profile === "object" &&

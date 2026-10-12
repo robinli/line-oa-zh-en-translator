@@ -1,3 +1,5 @@
+import {requestTimeout, remainingTimeout, withinTime, DeadlineScope, assertDeadlineActive} from "./translation-deadline.js";
+import {SolServiceError, type QuoteContext} from "./sol-review-types.js";
 import {copyNmtOutputContents, type NmtContentObserver} from "./nmt-content-capture.js";
 import {TranslationQualityError} from "./trade-policy.js";
 import type {DevEventOperationStore, DevEventSession} from "./dev-event-operation.js";
@@ -91,6 +93,9 @@ export interface WebhookLogger {
 }
 
 export interface WebhookDependencies {
+  solReviewEnabled?: boolean;
+  receivedAtMs?: number;
+  deadlineAtMs?: number;
   eventOperationStore?: DevEventOperationStore;
   eventSession?: DevEventSession;
   createEventTranslationProgram?: (session: DevEventSession, observer?: NmtContentObserver) => (mode: TranslationMode) => TranslationProgram;
@@ -122,6 +127,9 @@ export async function processLineWebhook(
   request: WebhookRequest,
   dependencies: WebhookDependencies,
 ): Promise<WebhookResponse> {
+  const deadlineAtMs = (dependencies.receivedAtMs ?? Date.now()) + 50000;
+  dependencies = {...dependencies, deadlineAtMs};
+  if (dependencies.solReviewEnabled) dependencies = scopedWebhookDependencies(dependencies);
   if (request.method !== "POST") {
     return {status: 405, body: {ok: false, error: "Method not allowed"}};
   }
@@ -168,16 +176,21 @@ export async function processLineWebhook(
   let qualityConfig: Awaited<ReturnType<TranslationQualityStore["getConfig"]>> | undefined;
   let qualityConfigRead = false;
   for (const event of webhookBody.events) {
+    const counts = {processed: 0, ignored: 0, failed: 0};
+    const runEvent = async () => {
     let session: DevEventSession | undefined;
     const eventStarted = Date.now();
     if (dependencies.eventOperationStore) {
       try {
-        session = (await dependencies.eventOperationStore.claim(event)) ?? undefined;
-        if (!session) {ignored++; continue;}
+        session = (await (dependencies.solReviewEnabled ?
+          withinTime(() => dependencies.eventOperationStore!.claim(event), remainingTimeout(deadlineAtMs, 2000)) :
+          dependencies.eventOperationStore.claim(event))) ?? undefined;
+        if (session && dependencies.solReviewEnabled) session.setDeadline(deadlineAtMs);
+        if (!session) {counts.ignored++; return;}
       } catch {
-        failed++;
+        counts.failed++;
         dependencies.logger.error("DEV event claim unavailable.", {reason: "operation_claim_error"});
-        continue;
+        return;
       }
     }
     const captureStarted = Date.now();
@@ -200,27 +213,30 @@ export async function processLineWebhook(
       const eventSession = session;
       eventDependencies = {...captured, eventSession,
         ...(dependencies.createEventTranslationProgram ? {getTranslationProgram: dependencies.createEventTranslationProgram(eventSession, original ? {
-          onInput: contents => {trace.nmtInputContents = [...contents];},
-          onOutput: contents => {trace.nmtOutputContents = copyNmtOutputContents(contents);},
+          onInput: contents => {assertDeadlineActive(); trace.nmtInputContents = [...contents];},
+          onOutput: contents => {assertDeadlineActive(); trace.nmtOutputContents = copyNmtOutputContents(contents);},
         } : undefined)} : {}),
         settingsStore: {
-          getSettings: id => eventSession.timed("settings", () => captured.settingsStore.getSettings(id)),
+          getSettings: id => eventSession.timed("settings", () => dependencies.solReviewEnabled ?
+            withinTime(() => captured.settingsStore.getSettings(id), remainingTimeout(deadlineAtMs, 2000)) : captured.settingsStore.getSettings(id)),
           setModeAndEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setModeAndEnabled(...args)),
           setTextTranslationEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setTextTranslationEnabled(...args)),
           setAudioTranscriptionEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setAudioTranscriptionEnabled(...args)),
         },
         replier: {replyText: async (token, text, context) => {
           const translationStatus = trace.outcome === "translated" ? "validated" : trace.outcome === "failed" ?
-            eventSession.providerStatus === "provider_succeeded" && eventSession.telemetry.failureStage !== "provider_completion" ? "quality_rejected" : "service_error" : "skipped";
+            eventSession.providerStatus === "provider_succeeded" && eventSession.telemetry.failureStage === "validation" ? "quality_rejected" : "service_error" : "skipped";
           if (trace.reason && !eventSession.telemetry.reason) eventSession.telemetry.reason = trace.reason;
           await eventSession.translation(translationStatus);
-          await eventSession.deliver(() => context ? captured.replier.replyText(token, text, context) : captured.replier.replyText(token, text));
+          await eventSession.deliver(() => dependencies.solReviewEnabled ?
+            captured.replier.replyText(token, text, context, deadlineAtMs) :
+            context ? captured.replier.replyText(token, text, context) : captured.replier.replyText(token, text));
         }},
       };
     }
-    const failedBefore = failed;
+    const failedBefore = counts.failed;
     if (original) dependencies.logger.info("Translation quality event received.", {reason: "quality_received", groupKey: createHash("sha256").update(original.groupId).digest("hex"), webhookEventId: original.webhookEventId, messageId: original.messageId});
-    if (original) await qualityOperation(() => eventDependencies.qualityStore!.saveOriginal(original), eventDependencies, original.webhookEventId ?? undefined);
+    if (original) await qualityOperation(() => eventDependencies.qualityStore!.saveOriginal(structuredClone(original)), eventDependencies, original.webhookEventId ?? undefined);
     try {
     if (
       isUserTextMessageEvent(event) &&
@@ -231,9 +247,9 @@ export async function processLineWebhook(
           event.replyToken,
           `你的 LINE userId：\n${event.source.userId}`,
         );
-        processed += 1;
+        counts.processed += 1;
       } catch (error: unknown) {
-        failed += 1;
+        counts.failed += 1;
         logEventFailure(
           "Failed to reply with a LINE user ID.",
           event.webhookEventId,
@@ -241,7 +257,7 @@ export async function processLineWebhook(
           eventDependencies,
         );
       }
-      continue;
+      return;
     }
 
     if (isUserTextMessageEvent(event) && eventDependencies.qualityStore && eventDependencies.ownerUserId && event.source.userId === eventDependencies.ownerUserId) {
@@ -252,9 +268,9 @@ export async function processLineWebhook(
       if (reply === undefined && qualityConfig && (explicitReportControl || knownActiveReport)) reply = "目前無法確認回報操作結果，請稍後重試；重複確認不會重複建案。";
       if (!qualityConfig && event.message.text.trim() === REPORT_COMMAND) reply = "翻譯錯誤回報目前無法使用，請稍後再試。";
       if (reply) {
-        try {await eventDependencies.replier.replyText(event.replyToken, reply); processed++;}
-        catch (error) {failed++; logEventFailure("Failed to reply to translation report.", event.webhookEventId, error, eventDependencies);}
-        continue;
+        try {await eventDependencies.replier.replyText(event.replyToken, reply); counts.processed++;}
+        catch (error) {counts.failed++; logEventFailure("Failed to reply to translation report.", event.webhookEventId, error, eventDependencies);}
+        return;
       }
     }
 
@@ -266,9 +282,9 @@ export async function processLineWebhook(
           (settings.textTranslationEnabled || settings.audioTranscriptionEnabled) ?
             formatStatus(settings, Boolean(eventDependencies.qualityStore)) : JOIN_MESSAGE,
         );
-        processed += 1;
+        counts.processed += 1;
       } catch (error: unknown) {
-        failed += 1;
+        counts.failed += 1;
         logEventFailure(
           "Failed to initialize joined LINE group.",
           event.webhookEventId,
@@ -276,7 +292,7 @@ export async function processLineWebhook(
           eventDependencies,
         );
       }
-      continue;
+      return;
     }
 
     // Private chats only support the ID command above; translation is group-only.
@@ -289,11 +305,11 @@ export async function processLineWebhook(
           maxAudioBytes,
           eventDependencies,
         );
-        if (outcome === "processed") processed += 1;
-        else if (outcome === "failed") failed += 1;
-        else ignored += 1;
+        if (outcome === "processed") counts.processed += 1;
+        else if (outcome === "failed") counts.failed += 1;
+        else counts.ignored += 1;
       } catch (error: unknown) {
-        failed += 1;
+        counts.failed += 1;
         logEventFailure(
           "Failed to process a LINE chat audio message.",
           event.webhookEventId,
@@ -301,22 +317,22 @@ export async function processLineWebhook(
           eventDependencies,
         );
       }
-      continue;
+      return;
     }
 
     if (!isGroupTextMessageEvent(event)) {
       if (original?.messageType === "audio") trace.reason = "unsupported_audio_provider";
-      ignored += 1;
-      continue;
+      counts.ignored += 1;
+      return;
     }
 
     try {
       const outcome = await processGroupTextMessage(event, maxMessageLength, eventDependencies);
-      if (outcome === "processed") processed += 1;
-      else if (outcome === "failed") failed += 1;
-      else ignored += 1;
+      if (outcome === "processed") counts.processed += 1;
+      else if (outcome === "failed") counts.failed += 1;
+      else counts.ignored += 1;
     } catch (error: unknown) {
-      failed += 1;
+      counts.failed += 1;
       logEventFailure(
         "Failed to process a LINE chat message.",
         event.webhookEventId,
@@ -325,6 +341,7 @@ export async function processLineWebhook(
       );
     }
     } finally {
+      try {assertDeadlineActive();} catch {return;}
       if (session) {
         if (trace.translationMode && dependencies.qualityMetadata) {
           const metadata = dependencies.qualityMetadata(trace.translationMode as TranslationMode, trace.sourceLanguageCode ?? undefined);
@@ -336,21 +353,28 @@ export async function processLineWebhook(
         session.telemetry.targetLanguageCode ??= trace.targetLanguageCode ?? null;
         session.telemetry.reason ??= trace.reason ?? null;
         try {
-          if (session.translationStatus === "pending") await session.translation(failed > failedBefore ? "service_error" : "skipped");
+          if (session.translationStatus === "pending") await session.translation(counts.failed > failedBefore ? "service_error" : "skipped");
           await session.complete();
         } catch {dependencies.logger.error("DEV event completion unavailable.", {reason: "operation_completion_error", operationId: session.operationId});}
       }
       if (original) {
-        if (failed > failedBefore && trace.deliveryStatus !== "failed") {trace.outcome = "failed"; trace.reason ??= "event_processing_error";}
+        if (counts.failed > failedBefore && trace.deliveryStatus !== "failed") {trace.outcome = "failed"; trace.reason ??= "event_processing_error";}
         trace.completedAt = new Date();
         if (trace.translationMode && dependencies.qualityMetadata) Object.assign(trace, dependencies.qualityMetadata(trace.translationMode as TranslationMode, trace.sourceLanguageCode ?? undefined));
         if (session) Object.assign(trace, {adapterVersion: session.telemetry.adapterVersion, protectionVersion: session.telemetry.protectionVersion,
           requestProfile: session.telemetry.requestProfile ?? null, validationScope: session.telemetry.validationScope ?? null,
-          semanticEvaluation: session.telemetry.semanticEvaluation ?? null});
-        const saved = await qualityOperation(async () => {await dependencies.qualityStore!.complete(original, trace); return true;}, dependencies, original.webhookEventId ?? undefined);
+          semanticEvaluation: session.telemetry.semanticEvaluation ?? null,
+          ...(session.telemetry.solReview ? {solReview: session.telemetry.solReview} : {})});
+        const saved = await qualityOperation(async () => {await dependencies.qualityStore!.complete(structuredClone(original), structuredClone(trace)); return true;}, dependencies, original.webhookEventId ?? undefined);
         if (saved) dependencies.logger.info("Translation quality capture completed.", {reason: "quality_capture", webhookEventId: original.webhookEventId, outcome: trace.outcome, deliveryStatus: trace.deliveryStatus});
       }
     }
+    };
+    try {
+      if (dependencies.solReviewEnabled) await new DeadlineScope(deadlineAtMs).run(runEvent);
+      else await runEvent();
+    } catch {if (!counts.processed && !counts.ignored) counts.failed = 1;}
+    processed += counts.processed; ignored += counts.ignored; failed += counts.failed;
   }
   dependencies.logger.info("LINE webhook processed.", {
     eventCount: webhookBody.events.length,
@@ -385,9 +409,15 @@ async function processGroupAudioMessage(
       throw new ContentLimitError("audio_too_long");
     }
     stage = "audio_download";
-    const audioContent = await dependencies.audioContentLoader.getMessageContent(event.message.id, maxAudioBytes);
+    const boundAudio = dependencies.solReviewEnabled;
+    const audioDeadline = dependencies.deadlineAtMs! - (settings.translationMode === "zh-vi" ? 0 : 10000);
+    const audioContent = boundAudio ? await withinTime(() => dependencies.audioContentLoader.getMessageContent(event.message.id, maxAudioBytes, audioDeadline),
+      remainingTimeout(audioDeadline)) : await dependencies.audioContentLoader.getMessageContent(event.message.id, maxAudioBytes);
     stage = "transcription";
-    const transcription = await dependencies.transcriber.transcribe(audioContent, getSpeechLanguageCodes(settings.translationMode));
+    const transcribe = () => boundAudio ?
+      dependencies.transcriber.transcribe(audioContent, getSpeechLanguageCodes(settings.translationMode), audioDeadline) :
+      dependencies.transcriber.transcribe(audioContent, getSpeechLanguageCodes(settings.translationMode));
+    const transcription = boundAudio ? await withinTime(transcribe, remainingTimeout(audioDeadline)) : await transcribe();
     sourceText = transcription.text;
     if (dependencies.eventSession) dependencies.eventSession.telemetry.sourceCharacters = [...sourceText].length;
     if (dependencies.qualityTrace) dependencies.qualityTrace.sourceText = sourceText;
@@ -402,7 +432,9 @@ async function processGroupAudioMessage(
       if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair);
       const {translator} = resolveTranslationProgram(dependencies, settings.translationMode);
       stage = "translation";
-      const translatedText = await translator.translate(sourceText, languagePair.sourceLanguageCode, languagePair.targetLanguageCode);
+      const context = await reviewContext(event, settings.translationMode, dependencies);
+      const translatedText = context ? await translator.translate(sourceText, languagePair.sourceLanguageCode, languagePair.targetLanguageCode, context)
+        : await translator.translate(sourceText, languagePair.sourceLanguageCode, languagePair.targetLanguageCode);
       if (!translatedText.trim()) throw new Error("Empty translation");
       replyText = sourceText + "\n\n" + translatedText;
       acceptedTranslation = translatedText;
@@ -536,7 +568,8 @@ async function processGroupTextMessage(
         protectedRanges.push({start, length});
       }
     }
-    if (protectedRanges.length) translationArgs.push({protectedRanges});
+    const context = await reviewContext(event, settings.translationMode, dependencies);
+    if (protectedRanges.length || context) translationArgs.push({...context, ...(protectedRanges.length ? {protectedRanges} : {})});
     stage = "translation";
     if (candidates.length && translator.translateWithRanges) {
       const result = await translator.translateWithRanges(...translationArgs);
@@ -581,9 +614,13 @@ async function reportTranslationFailure(
   error: unknown,
   dependencies: WebhookDependencies,
 ): Promise<"failed"> {
+  assertDeadlineActive();
   const reason = failureReason(error, stage);
   if (dependencies.eventSession) {
-    if (error instanceof TranslationQualityError) {
+    if (error instanceof SolServiceError) {
+      dependencies.eventSession.telemetry.reason = reason;
+      dependencies.eventSession.telemetry.failureStage = error.stage;
+    } else if (error instanceof TranslationQualityError) {
       dependencies.eventSession.telemetry.reason = error.reason;
       dependencies.eventSession.telemetry.failureStage = "validation";
     } else {
@@ -599,13 +636,32 @@ async function reportTranslationFailure(
   };
   dependencies.logger.error("LINE message processing failed.", {webhookEventId: event.webhookEventId, stage, reason});
   // Start independently so a slow/unavailable database cannot postpone the LINE reply.
+  assertDeadlineActive();
   const results = await Promise.allSettled([
-    Promise.resolve().then(() => dependencies.failureStore.save(record)),
+    dependencies.solReviewEnabled ? withinTime(() => dependencies.failureStore.save(structuredClone(record)), remainingTimeout(dependencies.deadlineAtMs, 2000)) : Promise.resolve().then(() => dependencies.failureStore.save(record)),
     Promise.resolve().then(() => dependencies.replier.replyText(event.replyToken, TRANSLATION_FAILURE_REPLY)),
   ]);
   if (results[0].status === "rejected") dependencies.logger.error("Failed to save translation failure.", {webhookEventId: event.webhookEventId, reason: "failure_store_error"});
   if (results[1].status === "rejected") dependencies.logger.error("Failed to deliver translation failure symbol.", {webhookEventId: event.webhookEventId, reason: "line_reply_error"});
   return "failed";
+}
+
+async function reviewContext(event: GroupTextMessageEvent | GroupAudioMessageEvent, mode: TranslationMode,
+  dependencies: WebhookDependencies): Promise<TranslationContext | undefined> {
+  if (!dependencies.solReviewEnabled || mode === "zh-vi") return undefined;
+  requestTimeout(dependencies.deadlineAtMs);
+  const quoted = (event.message as {quotedMessageId?: unknown}).quotedMessageId;
+  let quoteContext: QuoteContext = {status: typeof quoted === "string" && quoted ? "unknown" : "not_quoted"};
+  if (typeof quoted === "string" && quoted && dependencies.qualityStore?.getQuotedOriginal) {
+    try {
+      const value = await withinTime(() => dependencies.qualityStore!.getQuotedOriginal!(event.source.groupId, quoted),
+        requestTimeout(dependencies.deadlineAtMs, 2000));
+      // Never accept an oversized, malformed or truncated context from a port.
+      if (value.status === "known" && typeof value.text === "string" && value.text.trim() && value.text.length <= 2000) quoteContext = {status: "known", text: value.text};
+    } catch { /* Unknown is deliberately usable, without fabricated context. */ }
+  }
+  requestTimeout(dependencies.deadlineAtMs);
+  return {deadlineAtMs: dependencies.deadlineAtMs, quoteContext};
 }
 
 function normalizeTranslationText(text: string): string {
@@ -654,9 +710,12 @@ function getCommandMode(command: string): TranslationMode | undefined {
 }
 
 function resolveTranslationProgram(dependencies: WebhookDependencies, mode: TranslationMode): TranslationProgram {
-  if (dependencies.getTranslationProgram) return dependencies.getTranslationProgram(mode);
+  if (dependencies.getTranslationProgram) {
+    const program = dependencies.getTranslationProgram(mode);
+    return dependencies.solReviewEnabled ? {...program, translator: scopedTranslator(program.translator, mode, dependencies.deadlineAtMs!)} : program;
+  }
   if (!dependencies.translator) throw new Error("Translation program is not configured.");
-  return {translator: dependencies.translator, mentionAliases: mode === "zh-vi" ? [] : dependencies.mentionAliases ?? []};
+  return {translator: dependencies.solReviewEnabled ? scopedTranslator(dependencies.translator, mode, dependencies.deadlineAtMs!) : dependencies.translator, mentionAliases: mode === "zh-vi" ? [] : dependencies.mentionAliases ?? []};
 }
 
 function isSettingsChangeCommand(command: string): boolean {
@@ -705,4 +764,25 @@ function logEventFailure(
     webhookEventId,
     error: "event_processing_error",
   });
+}
+
+function scopedTranslator(translator: Translator, mode: TranslationMode, deadline: number): Translator {
+  const end = deadline - (mode === "zh-vi" ? 0 : 10000);
+  const run = <T>(operation: () => Promise<T>) => withinTime(operation, remainingTimeout(end, mode === "zh-vi" ? 50000 : 40000));
+  return {translate: (...args) => run(() => translator.translate(...args)),
+    ...(translator.translateWithRanges ? {translateWithRanges: (...args: Parameters<NonNullable<Translator["translateWithRanges"]>>) =>
+      run(() => translator.translateWithRanges!(...args))} : {})};
+}
+function scopedWebhookDependencies(dependencies: WebhookDependencies): WebhookDependencies {
+  const end = dependencies.deadlineAtMs!;
+  const run = <T>(operation: () => Promise<T>, cap = 2000) => withinTime(operation, remainingTimeout(end, cap));
+  return {...dependencies,
+    settingsStore: {
+      getSettings: (...args) => run(() => dependencies.settingsStore.getSettings(...args)),
+      setModeAndEnabled: (...args) => run(() => dependencies.settingsStore.setModeAndEnabled(...args)),
+      setTextTranslationEnabled: (...args) => run(() => dependencies.settingsStore.setTextTranslationEnabled(...args)),
+      setAudioTranscriptionEnabled: (...args) => run(() => dependencies.settingsStore.setAudioTranscriptionEnabled(...args)),
+    },
+    replier: {replyText: (token, text, context) => run(() => dependencies.replier.replyText(token, text, context, end), 15000)},
+  };
 }

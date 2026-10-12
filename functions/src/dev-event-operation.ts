@@ -1,3 +1,5 @@
+import {remainingTimeout, withinTime, assertDeadlineActive} from "./translation-deadline.js";
+import {copySolReviewRecord, type SolReviewRecord, type SolStage} from "./sol-review-types.js";
 import {createHash, randomUUID} from "node:crypto";
 import type {NmtBudgetCategory} from "./nmt-budget.js";
 import type {NmtRequestProfile} from "./nmt-request-profile.js";
@@ -8,6 +10,7 @@ export const DEV_OPERATION_VERSION = "dev-operation-a1";
 export type ProviderStatus = "not_started" | "provider_started" | "provider_succeeded" | "service_error" | "provider_unknown";
 export type DeliveryStatus = "not_attempted" | "delivery_started" | "sent" | "delivery_unknown";
 export interface OperationTelemetry {
+  solReview?: SolReviewRecord;
   origin: "runtime"; revision: string | null; adapterVersion: string | null; protectionVersion: string | null; pricingVersion: string;
   requestProfile?: string | null; validationScope?: "literal-integrity" | null; semanticEvaluation?: "not_evaluated" | null;
   engine: string | null; sourceLanguageCode: string | null; targetLanguageCode: string | null; glossary: string | null;
@@ -24,6 +27,7 @@ export interface DevEventOperation {
 }
 export interface OperationOwner {operationId: string; ownerAttempt: string; fence: 1}
 export interface DevEventOperationStore {
+  beginSolStage?(owner: OperationOwner, stage: SolStage, telemetry: OperationTelemetry): Promise<void>;
   claim(event: unknown): Promise<DevEventSession | null>;
   reserveProvider(owner: OperationOwner, category: NmtBudgetCategory, characters: number, telemetry: OperationTelemetry): Promise<void>;
   update(owner: OperationOwner, patch: Partial<Pick<DevEventOperation, "providerStatus" | "translationStatus" | "deliveryStatus" | "completedAt">>, telemetry: OperationTelemetry): Promise<void>;
@@ -54,7 +58,7 @@ export function operationData(record: DevEventOperation): DevEventOperation {
     providerStatus, translationStatus, deliveryStatus} = record;
   const t = record.telemetry;
   return {schemaVersion, version, operationId, groupKey, deduplication, ownerAttempt, fence, claimedAt, updatedAt, completedAt,
-    providerStatus, translationStatus, deliveryStatus, telemetry: {origin: t.origin, revision: t.revision, adapterVersion: t.adapterVersion,
+    providerStatus, translationStatus, deliveryStatus, telemetry: {...(t.solReview ? {solReview: copySolReviewRecord(t.solReview)} : {}), origin: t.origin, revision: t.revision, adapterVersion: t.adapterVersion,
       protectionVersion: t.protectionVersion, pricingVersion: t.pricingVersion, requestProfile: t.requestProfile ?? null,
       validationScope: t.validationScope === "literal-integrity" ? t.validationScope : null,
       semanticEvaluation: t.semanticEvaluation === "not_evaluated" ? t.semanticEvaluation : null, engine: t.engine, sourceLanguageCode: t.sourceLanguageCode,
@@ -69,13 +73,26 @@ export class DevEventSession {
   public deliveryStatus: DeliveryStatus = "not_attempted";
   public translationStatus: DevEventOperation["translationStatus"] = "pending";
   private readonly started: number;
-  public constructor(private readonly store: DevEventOperationStore, public readonly owner: OperationOwner, record: DevEventOperation) {
+  private readonly store: DevEventOperationStore;
+  private deadlineAtMs?: number;
+  public setDeadline(deadlineAtMs: number): void {this.deadlineAtMs = deadlineAtMs;}
+  private control<T>(run: () => Promise<T>): Promise<T> {
+    return this.deadlineAtMs === undefined ? run() : withinTime(run, remainingTimeout(this.deadlineAtMs, 2000));
+  }
+  public constructor(store: DevEventOperationStore, public readonly owner: OperationOwner, record: DevEventOperation) {
+    this.store = {
+      claim: event => store.claim(event),
+      reserveProvider: (...args) => {const frozen = structuredClone(args); return this.control(() => store.reserveProvider(...frozen));},
+      update: (...args) => {const frozen = structuredClone(args); return this.control(() => store.update(...frozen));},
+      ...(store.beginSolStage ? {beginSolStage: (...args: Parameters<NonNullable<DevEventOperationStore["beginSolStage"]>>) =>
+        {const frozen = structuredClone(args); return this.control(() => store.beginSolStage!(...frozen));}} : {}),
+    };
     this.started = Date.parse(record.claimedAt);
     this.telemetry = structuredClone(record.telemetry);
   }
   public get operationId(): string {return this.owner.operationId;}
-  public duration(stage: string, elapsed: number): void {this.telemetry.durations[stage] = (this.telemetry.durations[stage] ?? 0) + Math.max(0, elapsed);}
-  public async timed<T>(stage: string, run: () => Promise<T>): Promise<T> {const start = Date.now(); try {return await run();} finally {this.duration(stage, Date.now() - start);}}
+  public duration(stage: string, elapsed: number): void {assertDeadlineActive(); this.telemetry.durations[stage] = (this.telemetry.durations[stage] ?? 0) + Math.max(0, elapsed);}
+  public async timed<T>(stage: string, run: () => Promise<T>): Promise<T> {const start = Date.now(); try {const result = await run(); assertDeadlineActive(); return result;} finally {try {this.duration(stage, Date.now() - start);} catch { /* Revoked continuations cannot change metadata. */ }}}
   public prepare(request: ControlledNmtRequest, profile: NmtRequestProfile = "legacy-glossary"): void {
     const direct = profile !== "legacy-glossary" && request.sourceLanguageCode !== "vi" && request.targetLanguageCode !== "vi";
     const contents = request.contents, primary = !direct && request.glossaryConfig ? contents[0] ?? "" : contents.join("");
@@ -105,12 +122,21 @@ export class DevEventSession {
     this.telemetry.apiCalled = "unknown"; this.providerStatus = "provider_unknown";
     await this.store.update(this.owner, {providerStatus: "provider_unknown"}, this.telemetry);
   }
+  public async beginSolStage(stage: SolStage, record: SolReviewRecord): Promise<void> {
+    if (!this.store.beginSolStage) throw new Error("sol_stage_store_unavailable");
+    this.telemetry.solReview = copySolReviewRecord(record);
+    await this.store.beginSolStage(this.owner, stage, this.telemetry);
+  }
+  public async finishSolStage(_stage: SolStage, record: SolReviewRecord): Promise<void> {
+    this.telemetry.solReview = copySolReviewRecord(record);
+    await this.store.update(this.owner, {}, this.telemetry);
+  }
   public async translation(status: DevEventOperation["translationStatus"]): Promise<void> {await this.store.update(this.owner, {translationStatus: status}, this.telemetry); this.translationStatus = status;}
   public async deliver(run: () => Promise<void>): Promise<void> {
     try {await this.store.update(this.owner, {deliveryStatus: "delivery_started"}, this.telemetry);}
     catch (error) {this.telemetry.failureStage = "delivery_start"; this.telemetry.reason = "operation_store_error"; throw error;}
     this.deliveryStatus = "delivery_started";
-    try {await this.timed("line", run);} catch (error) {
+    try {await this.timed("line", () => this.deadlineAtMs === undefined ? run() : withinTime(run, remainingTimeout(this.deadlineAtMs)));} catch (error) {
       this.deliveryStatus = "delivery_unknown"; this.telemetry.failureStage = "line"; this.telemetry.reason = "line_reply_error";
       try {await this.store.update(this.owner, {deliveryStatus: "delivery_unknown"}, this.telemetry);} catch { /* Durable started already prevents another send. */ }
       throw error;

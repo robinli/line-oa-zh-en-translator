@@ -1,3 +1,6 @@
+import {deadlineFirestore} from "./translation-deadline.js";
+import {copySolReviewRecord, type SolReviewRecord, type QuoteContext} from "./sol-review-types.js";
+import {withinTime} from "./translation-deadline.js";
 import {copyNmtOutputContents, type NmtOutputContents} from "./nmt-content-capture.js";
 import {createHash} from "node:crypto";
 import {FieldPath, type Firestore} from "firebase-admin/firestore";
@@ -20,6 +23,7 @@ export interface QualityOriginal {
   eventTime: Date; recordedAt: Date; sourceText: string | null;
 }
 export interface QualityCompletion {
+  solReview?: SolReviewRecord;
   nmtInputContents?: string[] | null; nmtOutputContents?: NmtOutputContents | null;
   operationId?: string;
   sourceText?: string | null; translatedText?: string | null; replyText?: string | null;
@@ -48,6 +52,7 @@ export interface ReportSession {
 export interface QualityCase {id: string; ownerUserId: string; status: "pending_analysis"; createdAt: Date; draft: ReportDraft}
 export interface ReportTransition {session: ReportSession | null; reply: string | null; errorCase?: QualityCase}
 export interface TranslationQualityStore {
+  getQuotedOriginal?(groupId: string, messageId: string): Promise<QuoteContext>;
   getConfig(): Promise<QualityConfig | null>;
   getRecordingEnabled(groupId: string): Promise<boolean>;
   setRecordingEnabled(groupId: string, enabled: boolean, changedBy: string, eventId: string, eventTime: number): Promise<{enabled: boolean; applied: boolean}>;
@@ -90,13 +95,25 @@ function originalData(record: QualityOriginal): Record<string, unknown> {
 function completionData(completion: QualityCompletion): Record<string, unknown> {
   const data: Record<string, unknown> = {...(completion.operationId ? {operationId: completion.operationId} : {}), outcome: completion.outcome, deliveryStatus: completion.deliveryStatus, completedAt: completion.completedAt};
   for (const key of ["translatedText", "replyText", "translationMode", "sourceLanguageCode", "targetLanguageCode", "engine", "glossary", "revision", "adapterVersion", "protectionVersion", "requestProfile", "validationScope", "semanticEvaluation", "reason"] as const) data[key] = completion[key] ?? null;
+  if (completion.solReview) data.solReview = copySolReviewRecord(completion.solReview);
   data.nmtInputContents = Array.isArray(completion.nmtInputContents) && completion.nmtInputContents.every(text => typeof text === "string") ? [...completion.nmtInputContents] : null;
   data.nmtOutputContents = completion.nmtOutputContents ? copyNmtOutputContents(completion.nmtOutputContents) : null;
   return data;
 }
 export class FirestoreTranslationQualityStore implements TranslationQualityStore {
   private readonly now: () => Date;
-  constructor(private readonly firestore: Firestore, private readonly options: {projectId: string; revision?: string; now?: () => Date}) {this.now = options.now ?? (() => new Date());}
+  constructor(private readonly firestore: Firestore, private readonly options: {projectId: string; revision?: string; now?: () => Date}) {this.firestore = deadlineFirestore(firestore); this.now = options.now ?? (() => new Date());}
+  async getQuotedOriginal(groupId: string, messageId: string): Promise<QuoteContext> {
+    if (!isSupportedRuntimeProject(this.options.projectId) || !isQualityGroupId(groupId) || !messageId || messageId.length > 200) return {status: "unknown"};
+    try {
+      const snapshot = await withinTime(() => this.firestore.collection(QUALITY_MESSAGES_COLLECTION)
+        .where("groupId", "==", groupId).where("messageId", "==", messageId).limit(2).get(), 2000);
+      if (snapshot.docs.length !== 1) return {status: "unknown"};
+      const doc = snapshot.docs[0]!, text = doc.get("sourceText");
+      if (doc.get("groupId") !== groupId || doc.get("messageId") !== messageId || typeof text !== "string" || !text.trim() || text.length > 2000) return {status: "unknown"};
+      return {status: "known", text};
+    } catch {return {status: "unknown"};}
+  }
   async getConfig(): Promise<QualityConfig | null> {
     if (!isSupportedRuntimeProject(this.options.projectId)) return null;
     const config = parseQualityConfig((await this.firestore.doc(QUALITY_CONFIG_PATH).get()).data());

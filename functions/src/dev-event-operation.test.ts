@@ -1,3 +1,5 @@
+import {createTranslator} from "./translator-factory.js";
+import {newSolReviewRecord} from "./sol-review-types.js";
 import {createHmac} from "node:crypto";
 import {expect, it, vi} from "vitest";
 import {initialOperation, operationIdentity, operationData, DevEventSession, type DevEventOperation, type DevEventOperationStore, type OperationOwner, type OperationTelemetry} from "./dev-event-operation.js";
@@ -13,6 +15,7 @@ import type {TranslationQualityStore} from "./translation-quality-store.js";
 import {processLineWebhook, type WebhookDependencies} from "./webhook.js";
 
 class MemoryOperations implements DevEventOperationStore {
+  public beginSolStage?: DevEventOperationStore["beginSolStage"];
   public rows = new Map<string, DevEventOperation>();
   public ledger = initialNmtLedger(projectId);
   public fail: "claim" | "reserve" | "delivery_start" | "sent" | "complete" | "provider_finish_before" | "provider_finish_after" | undefined;
@@ -210,4 +213,72 @@ it.each([
   expect(s.deps.replier.replyText).toHaveBeenCalledTimes(1);
   if (status === "quality_rejected") expect(s.deps.replier.replyText).toHaveBeenCalledWith("PRIVATE TOKEN", "🚧");
   expect(JSON.stringify(s.row("confirm-b"))).not.toContain(output);
+});
+
+function setupSol(verdict: "OK" | "NOT_GOOD" | "UNCERTAIN" = "OK") {
+  const s = setup();
+  s.deps.solReviewEnabled = true;
+  const usage = {inputTokens: 120, outputTokens: 40, cachedInputTokens: 0, reasoningTokens: 10};
+  const review = vi.fn(async () => ({verdict, reason: "語意判定", usage})), rewrite = vi.fn(async () => ({translation: "Hello", usage}));
+  s.store.beginSolStage = async (owner, stage, telemetry) => {
+    const record = assertOperationOwner(s.store.rows.get(owner.operationId), owner);
+    if ((record.telemetry.solReview?.[stage].status ?? "not_started") !== "not_started") throw Error("started");
+    await s.store.update(owner, {}, telemetry);
+  };
+  s.send.mockResolvedValue([{translations: [{translatedText: "Hello"}]}]);
+  s.deps.createEventTranslationProgram = session => () => ({
+    translator: createTranslator({engine: "nmt-direct", projectId, model: "", location: "", protectedNames: "Alex",
+      nmtDirect: {profile: "nmt-direct-v1", client: new ControlledNmtClient({translateText: s.send}, {reserve: s.reserve},
+        "manual", async () => ({projectId, principal: NMT_TEST_ACCOUNT, runtimeAccount: NMT_RUNTIME_ACCOUNT,
+          billingAccount: "billingAccounts/" + NMT_TEST_BILLING, billingEnabled: true}), false, session, "nmt-direct-v1")},
+      solReview: {client: {review, rewrite}, stages: {begin: (stage, record) => session.beginSolStage(stage, record),
+        finish: (stage, record) => session.finishSolStage(stage, record)}, onRecord: record => {session.telemetry.solReview = structuredClone(record);}},
+      onNmtDirectMetric: metric => {if (metric.reason) {session.telemetry.failureStage = "validation"; session.telemetry.reason = metric.reason;}},
+    }), mentionAliases: []});
+  return {...s, review, rewrite};
+}
+it.each(["OK", "NOT_GOOD", "UNCERTAIN"] as const)("persists stage transitions and never repeats any stage on webhook redelivery: %s", async verdict => {
+  const s = setupSol(verdict); await s.call([event("sol")]); await s.call([event("sol")]);
+  expect(s.send).toHaveBeenCalledOnce(); expect(s.review).toHaveBeenCalledOnce();
+  expect(s.rewrite).toHaveBeenCalledTimes(verdict === "OK" ? 0 : 1);
+  expect(s.row("sol")).toMatchObject({translationStatus: "validated", telemetry: {solReview: {verdict,
+    finalSource: verdict === "OK" ? "nmt" : "gpt", semanticEvaluation: verdict === "OK" ? "nmt_accepted" : "not_evaluated"}}});
+  expect(s.deps.replier.replyText).toHaveBeenCalledOnce();
+});
+it("records model failure separately from a known successful NMT, with no fallback model call", async () => {
+  const s = setupSol(); s.review.mockRejectedValue(Error("PRIVATE"));
+  await s.call([event("sol-error")]); await s.call([event("sol-error")]);
+  expect(s.row("sol-error")).toMatchObject({providerStatus: "provider_succeeded", translationStatus: "service_error",
+    telemetry: {solReview: {review: {status: "unknown"}, rewrite: {status: "not_started"}}}});
+  expect(s.deps.replier.replyText).toHaveBeenCalledExactlyOnceWith("PRIVATE TOKEN", "🚧", undefined, expect.any(Number));
+  expect(s.rewrite).not.toHaveBeenCalled(); expect(s.review).toHaveBeenCalledOnce();
+});
+it("uses original quote without passing LINE group or user IDs to Sol, including recording off", async () => {
+  const s = setupSol(); const lookup = vi.fn(async () => ({status: "known" as const, text: "先前原文"}));
+  s.deps.qualityStore = {getConfig: vi.fn(async () => null), getQuotedOriginal: lookup} as unknown as TranslationQualityStore;
+  await s.call([{...event("quoted"), message: {...event("quoted").message, quotedMessageId: "quoted-id"}}]);
+  expect(lookup).toHaveBeenCalledExactlyOnceWith(event("quoted").source.groupId, "quoted-id");
+  expect(s.review.mock.calls[0]).toContainEqual({status: "known", text: "先前原文"});
+  expect(JSON.stringify(s.review.mock.calls)).not.toContain("PRIVATE USER");
+  expect(JSON.stringify(s.review.mock.calls)).not.toContain(event("quoted").source.groupId);
+});
+it("translates audio transcript through the same reviewed application path", async () => {
+  const s = setupSol("NOT_GOOD");
+  vi.mocked(s.deps.settingsStore.getSettings).mockResolvedValue({translationMode: "zh-en", textTranslationEnabled: true, audioTranscriptionEnabled: true});
+  vi.mocked(s.deps.audioContentLoader.getMessageContent).mockResolvedValue(Buffer.from("synthetic"));
+  vi.mocked(s.deps.transcriber.transcribe).mockResolvedValue({text: "你好"});
+  await s.call([{...event("sol-audio"), message: {type: "audio", id: "sol-audio", duration: 1000, contentProvider: {type: "line"}}}]);
+  expect(s.review).toHaveBeenCalledOnce(); expect(s.rewrite).toHaveBeenCalledOnce();
+  expect(s.deps.replier.replyText).toHaveBeenCalledExactlyOnceWith("PRIVATE TOKEN", "你好\n\nHello", undefined, expect.any(Number));
+});
+it("refuses a new translation after the shared batch deadline", async () => {
+  const s = setupSol(); s.deps.receivedAtMs = Date.now() - 41000;
+  await s.call([event("late")]); expect(s.send).not.toHaveBeenCalled(); expect(s.review).not.toHaveBeenCalled();
+  expect(s.deps.replier.replyText).toHaveBeenCalledExactlyOnceWith("PRIVATE TOKEN", "🚧", undefined, expect.any(Number));
+});
+it("preserves a durable started Sol stage when a later completion misses the reservation", () => {
+  const record = initialOperation(event("unknown")), before = newSolReviewRecord();
+  before.review.status = "started"; record.telemetry.solReview = before;
+  const current = {...record.telemetry, solReview: newSolReviewRecord()};
+  expect(completionTelemetry(record, current).solReview!.review.status).toBe("started");
 });

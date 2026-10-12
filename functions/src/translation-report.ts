@@ -1,3 +1,4 @@
+import {assertDeadlineActive} from "./translation-deadline.js";
 import type {UserTextMessageEvent} from "./domain.js";
 import {qualityCaseId, REPORT_SESSION_MS, type QualityConfig, type QualityMessage, type QualitySearchResult, type ReportSession, type ReportTransition, type TranslationQualityStore} from "./translation-quality-store.js";
 
@@ -12,11 +13,12 @@ export async function processTranslationReport(event: UserTextMessageEvent, owne
   // A transaction can retry; reuse its bounded search result rather than rescanning.
   const searches = new Map<string, Promise<QualitySearchResult>>();
   return store.transitionReport(ownerId, eventId, async previous => {
+    assertDeadlineActive();
     if (previous) onActiveSession?.();
     const fresh = (): ReportSession => ({id: eventId, stage: "menu", expiresAt: now.getTime() + REPORT_SESSION_MS, draft: {kind: "search"}});
     let session: ReportSession = previous ? structuredClone(previous) : fresh();
     config = {...config, groups: session.groupChoices ?? config.groups};
-    const respond = (reply: string): ReportTransition => ({session, reply});
+    const respond = (reply: string): ReportTransition => {assertDeadlineActive(); return {session, reply};};
     if (text === REPORT_COMMAND) {session = fresh(); return respond(MENU);}
     if (!previous) return {session: null, reply: text === "/取消" || text === "/返回" || text === "確認" ? "目前沒有有效的回報草稿，請輸入 /翻譯錯誤。" : null};
     if (session.stage === "submitted" && text !== "/取消") return respond(`已建立翻譯錯誤案件 ${qualityCaseId(ownerId, session.id)}，狀態：待分析。輸入 /翻譯錯誤 開始新回報。`);
@@ -68,6 +70,7 @@ export async function processTranslationReport(event: UserTextMessageEvent, owne
       if (searches.size && !searches.has(key)) throw new Error("quality_search_conflict");
       if (!searches.has(key)) searches.set(key, store.search({...query, start: new Date(query.start), end: new Date(query.end)}));
       const results = await searches.get(key)!;
+      assertDeadlineActive();
       session.results = results.messages; session.nextCursor = results.cursor; session.stage = "searchResults";
       return respond(prompt(session, config));
     }

@@ -1,3 +1,5 @@
+import {SolServiceError} from "./sol-review-types.js";
+import {TranslationDeadlineError} from "./translation-deadline.js";
 import {TranslationQualityError} from "./trade-policy.js";
 
 export const UNCHANGED_TRANSLATION_REPLY = "👆";
@@ -21,6 +23,8 @@ const qualityReasons = new Set([
   "unjustified_tax_inclusion", "unexpected_number_or_token", "unprotected_trade_data", "duplicated_person",
 ]);
 export function failureReason(error: unknown, stage: FailureStage): string {
+  if (error instanceof SolServiceError) return error.stage + "_" + error.code;
+  if (error instanceof TranslationDeadlineError) return "translation_deadline_exceeded";
   if (error instanceof ContentLimitError) return error.reason;
   if (error instanceof TranslationQualityError) return qualityReasons.has(error.reason) ? error.reason : "quality_rejected";
   return {input: "input_processing_error", audio_download: "audio_download_error",

@@ -20,7 +20,7 @@ class MemoryFirestore {
       startAfter: (date: Date, id: string) => {after = [date, id]; return query;}, limit: (value: number) => {limit = value; this.limits.push(value); return query;},
       get: async () => {
         const docs = [...this.documents.keys()].filter(key => key.startsWith(path + "/") && !key.slice(path.length + 1).includes("/")).map(key => this.snapshot(key))
-          .filter(doc => filters.every(([field, op, value]) => op === ">=" ? doc.get(field) >= value : doc.get(field) <= value))
+          .filter(doc => filters.every(([field, op, value]) => op === "==" ? doc.get(field) === value : op === ">=" ? doc.get(field) >= value : doc.get(field) <= value))
           .sort((a, b) => (b.get("eventTime")?.getTime() ?? 0) - (a.get("eventTime")?.getTime() ?? 0) || b.id.localeCompare(a.id))
           .filter(doc => !after || doc.get("eventTime") < after[0] || (+doc.get("eventTime") === +after[0] && doc.id < after[1])).slice(0, limit);
         return {docs, size: docs.length};
@@ -215,4 +215,21 @@ it("stores exact NMT content with safe projection, keeps first completion, and i
 it("stores rejected NMT contents while accepted translation remains null", async () => {
   const t = setup(); await t.store.complete(original, {...completion, outcome: "failed", translatedText: null, replyText: "🚧", nmtInputContents: ["protected"], nmtOutputContents: {translations: ["rejected"]}});
   expect(t.docs(QUALITY_MESSAGES_COLLECTION)[0]).toMatchObject({outcome: "failed", translatedText: null, nmtOutputContents: {translations: ["rejected"]}});
+});
+
+it("resolves only a unique exact quote within the current group", async () => {
+  const t = setup(); await t.store.saveOriginal(original);
+  expect(await t.store.getQuotedOriginal(original.groupId, "message")).toEqual({status: "known", text: "原文"});
+  expect(await t.store.getQuotedOriginal(groups[1]!.id, "message")).toEqual({status: "unknown"});
+  expect(await t.store.getQuotedOriginal(original.groupId, "missing")).toEqual({status: "unknown"});
+  await t.store.saveOriginal({...original, webhookEventId: "duplicate"});
+  expect(await t.store.getQuotedOriginal(original.groupId, "message")).toEqual({status: "unknown"});
+  expect(t.db.limits).toEqual([2, 2, 2, 2]);
+});
+it("does not truncate or invent oversized, empty or failed quote results", async () => {
+  const t = setup(); await t.store.saveOriginal({...original, sourceText: "x".repeat(2001)});
+  expect(await t.store.getQuotedOriginal(original.groupId, "message")).toEqual({status: "unknown"});
+  const collection = t.db.collection.bind(t.db);
+  t.db.collection = path => {const query = collection(path); query.get = async () => {throw Error("PRIVATE");}; return query;};
+  expect(await t.store.getQuotedOriginal(original.groupId, "message")).toEqual({status: "unknown"});
 });

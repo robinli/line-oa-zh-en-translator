@@ -100,3 +100,10 @@ npm.cmd --prefix functions run export:quality -- --project=line-auto-translate-b
 - CLI 已回報 Function 更新成功，末尾因未設定 asia-east1 Artifact Registry 清理政策回傳 1；未重複部署，也未改清理政策。部署後以 ACTIVE／100% 流量、160 個應用／建置／package 檔逐 byte 比對、四群收件／重送、非文字資訊與 T1 排除、非管理者私訊驗證確認；管理者完整流程以 emulator 驗證，雲端不覆寫真實管理者草稿。
 - 本次付費翻譯測試字元為 0，未向真人發送合成訊息；正常群組使用產生的用量另計。合成品質紀錄已按 updateTime 清除，安全 receipt 日誌仍保留，後續完整性分析需按 smoke.json 的 syntheticEventIds 排除。
 - 匯出工具離線測試通過；初次實際匯出因期間／目的地未明確授權遭自動審查拒絕，使用者隨後明確批准補做，已於台北時間 2026-09-25 20:03 完成 9/25 四群匯出至 .local/quality-20260925/export-smoke/；當時交談與案例均 0 筆，JSONL／JSON、日期範圍、筆數及 Git 忽略檢查通過，Cloud Logging 可讀且寫入失敗 0 次，非空真實內容尚無資料可驗證，證據為該目錄 verification.json。
+
+
+## 2026-10-08 Sol 階段品質記錄
+
+新候選 completion.solReview／operation.telemetry.solReview 分開保存 NMT 檢查、評審判定與理由、重譯狀態、引用状态、最终來源、耗時與各階段 token 用量；既有 NMT 實送及原始輸出保持，被拒 GPT 原始輸出不保存。GPT 最終重譯只能標 semanticEvaluation=not_evaluated，不作第二次評審。舊資料缺欄位不回填，匯出 Sol 欄位獨立統計。引用只查當群指定 messageId 的唯一已保存原文，未知不补造，完整契約及發布狀態見 [Sol 評審與重譯](中英Sol評審與重譯20261008.md)。
+
+2026-10-08 Sol階段採集已隨DEV linewebhook-00016-quv及PRD linewebhook-00022-ber（ACTIVE／100%）生效，各自的群組開關與資料保持隔離；本次PRD依新增直接發布授權，手機仍未確認。原NMT輸出保持，GPT重譯沒有再次語意評審且semanticEvaluation=not_evaluated；品質／歷史配置未改，詳 [PRD發布](PRD最新NMT部署20261005.md#2026-10-08-prd-sol-評審與重譯發布)。
