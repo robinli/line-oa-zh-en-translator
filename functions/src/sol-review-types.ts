@@ -5,6 +5,7 @@ export type QuoteContext = {status: "not_quoted" | "unknown"} | {status: "known"
 export interface SolUsage {inputTokens: number; outputTokens: number; cachedInputTokens: number; reasoningTokens: number}
 export interface SolStageRecord {status: SolStageStatus; elapsedMs?: number; usage?: SolUsage}
 export interface SolReviewRecord {
+  sourceLanguageCode?: string; targetLanguageCode?: string;
   version: "sol-review-v1"; model: "gpt-6.1-sol"; nmtCheck: "passed" | "rejected" | "service_error" | "local";
   nmtReason: string | null; review: SolStageRecord; rewrite: SolStageRecord;
   verdict: SolVerdict | null; reason: string | null; finalSource: "nmt" | "gpt" | "local" | null;
@@ -23,6 +24,8 @@ export function copySolReviewRecord(value: SolReviewRecord): SolReviewRecord {
     ...(item.usage ? {usage: {inputTokens: item.usage.inputTokens, outputTokens: item.usage.outputTokens,
       cachedInputTokens: item.usage.cachedInputTokens, reasoningTokens: item.usage.reasoningTokens}} : {})});
   return {version: value.version, model: value.model, nmtCheck: value.nmtCheck, nmtReason: value.nmtReason,
+    ...(value.sourceLanguageCode === undefined ? {} : {sourceLanguageCode: value.sourceLanguageCode}),
+    ...(value.targetLanguageCode === undefined ? {} : {targetLanguageCode: value.targetLanguageCode}),
     review: stage(value.review), rewrite: stage(value.rewrite), verdict: value.verdict, reason: value.reason,
     finalSource: value.finalSource, semanticEvaluation: value.semanticEvaluation, quoteStatus: value.quoteStatus};
 }

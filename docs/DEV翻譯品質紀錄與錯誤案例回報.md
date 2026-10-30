@@ -1,5 +1,10 @@
 # DEV 翻譯品質紀錄與錯誤案例回報
 
+## 2026-10-14 完整歷程與翻譯記錄分工（DEV／PRD 已發布）
+
+DEV 已發布 linewebhook-00019-zuf／conversationarchiveworker-00001-gel，皆 ACTIVE／100%；開啟記錄群組的全部訊息先寫完整歷程，只有需要翻譯者才新增 lineTranslationMessages。原始附件背景保存，收回清除原文、譯文、NMT 欄位及可關聯副本；既有資料不遷移或回填，新群預設關閉、已知群保留當前開關。完整離線、獨立驗證、雲端來源及合成事件／背景清除探測通過，手機附件／收回待驗收；PRD另依最新明確授權發布 linewebhook-00024-nef／conversationarchiveworker-00001-cuf（ACTIVE／100%），正式完整來源及合成檢查通過。第一版沒有新增查閱介面，來源保存失敗回503。下文是原品質採集規則的歷史／既有版本說明，新版契約、ARC-L01維運判讀與生效狀態依 [完整對話歷程記錄](完整對話歷程記錄20261014.md)。
+
+
 2026-09-26：本功能僅適用 `line-auto-translate-bot-dev`／測試 OA `@249opyjp`。目標為保存交談與譯文，供使用者一週後提出分析；不改翻譯引擎、術語表或品質演算法，不新增付費翻譯測試。
 
 > **群組記錄開關交付（2026-09-26）：** 群組記錄開關已部署 DEV `linewebhook-00006-wol`（ACTIVE、100% 流量），5 個已知群組均開啟，新增群組缺省開啟；完整離線、獨立驗證及 7 組雲端合成檢查通過，手機端待人工驗收。證據 `.local/quality-recording-20260926/`。
@@ -107,3 +112,7 @@ npm.cmd --prefix functions run export:quality -- --project=line-auto-translate-b
 新候選 completion.solReview／operation.telemetry.solReview 分開保存 NMT 檢查、評審判定與理由、重譯狀態、引用状态、最终來源、耗時與各階段 token 用量；既有 NMT 實送及原始輸出保持，被拒 GPT 原始輸出不保存。GPT 最終重譯只能標 semanticEvaluation=not_evaluated，不作第二次評審。舊資料缺欄位不回填，匯出 Sol 欄位獨立統計。引用只查當群指定 messageId 的唯一已保存原文，未知不补造，完整契約及發布狀態見 [Sol 評審與重譯](中英Sol評審與重譯20261008.md)。
 
 2026-10-08 Sol階段採集已隨DEV linewebhook-00016-quv及PRD linewebhook-00022-ber（ACTIVE／100%）生效，各自的群組開關與資料保持隔離；本次PRD依新增直接發布授權，手機仍未確認。原NMT輸出保持，GPT重譯沒有再次語意評審且semanticEvaluation=not_evaluated；品質／歷史配置未改，詳 [PRD發布](PRD最新NMT部署20261005.md#2026-10-08-prd-sol-評審與重譯發布)。
+
+## 2026-10-29 中越 Sol 與指定片語 DEV 發布
+
+2026-10-29 DEV linewebhook-00021-hak／conversationarchiveworker-00003-bux ACTIVE／100% 已發布，中越接入與中英相同的 Sol 評審／必要原文單次重譯，mít color 原樣規則生效。隔離包 vi-sol-20261029-r2 的498檔 manifest 與獨立候選吻合，包內及 Firebase predeploy 的2415項應用、86項工具、型別及建置通過；兩函式雲端來源各417檔逐SHA相同，缺漏／新增／不符為零。現有資源、dotenv／別名含Wei、Secret綁定、啟用API、品質／歷程設定及Artifact清理政策保持；一群在發布期間由相符LINE指令切換zh-vi，其他群組欄位保持，沒有回寫覆蓋（concurrent-group-command.json）。GET405／錯誤簽章401／簽章空事件200及新包發布後兩案真NMT＋Sol／LINE替身、持久階段與重送檢查通過。 詳見 [中越 Sol 整合與 DEV 發布](中越Sol評審與DEV發布20261029.md)。原句經自動評審指出貨重／包裝重量差異後單次重譯；Sol記錄新增可選sourceLanguageCode／targetLanguageCode，NMT檢查、review、rewrite、引用及finalSource沿用原分欄，歷史缺欄位不回填。重譯semanticEvaluation仍not_evaluated，手機及既有語意品質findings不視為通過；PRD維持原版。

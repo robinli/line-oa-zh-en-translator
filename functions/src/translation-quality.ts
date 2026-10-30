@@ -36,12 +36,13 @@ export function traceQualityDependencies(dependencies: WebhookDependencies, trac
       setAudioTranscriptionEnabled: (...args) => dependencies.settingsStore.setAudioTranscriptionEnabled(...args),
       setTextTranslationEnabled: (...args) => dependencies.settingsStore.setTextTranslationEnabled(...args),
     },
-    replier: {replyText: async (token, text, context, deadlineAtMs) => {
+    replier: {supportsReplyObserver: dependencies.replier.supportsReplyObserver, replyText: async (token, text, context, deadlineAtMs, observer) => {
       trace.replyText = text;
       if (trace.outcome === "ignored") trace.outcome = "skipped";
       try {
         // Preserve argument arity for existing repliers and their tests.
-        if (deadlineAtMs !== undefined) await dependencies.replier.replyText(token, text, context, deadlineAtMs);
+        if (observer) await dependencies.replier.replyText(token, text, context, deadlineAtMs, observer);
+        else if (deadlineAtMs !== undefined) await dependencies.replier.replyText(token, text, context, deadlineAtMs);
         else if (context) await dependencies.replier.replyText(token, text, context);
         else await dependencies.replier.replyText(token, text);
         assertDeadlineActive(); trace.deliveryStatus = "sent";

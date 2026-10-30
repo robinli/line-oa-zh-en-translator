@@ -217,30 +217,31 @@ it.each([400, 503, "unknown"])("scoped LINE downgrades only definite mention rej
     expect(send.mock.calls[0]?.[0]).toBe("https://api.line.me/v2/bot/message/reply");
   } finally {vi.unstubAllGlobals();}
 });
-it("keeps Vietnamese engine admission in a mixed batch after the English processing deadline", async () => {
+it("refuses both English and Vietnamese engine admission after the shared processing deadline", async () => {
   const fixture = deadlineFixture(); fixture.dependencies.receivedAtMs -= 41000;
   let settingsCalls = 0;
   fixture.dependencies.settingsStore.getSettings = vi.fn(async () => ({
     translationMode: ++settingsCalls === 1 ? "zh-en" : "zh-vi", textTranslationEnabled: true, audioTranscriptionEnabled: false,
   }));
   const result = await fixture.run();
-  expect(fixture.calls).toHaveBeenCalledOnce(); expect(result.body.processed).toBe(1); expect(result.body.failed).toBe(1);
+  expect(fixture.calls).not.toHaveBeenCalled(); expect(result.body.processed).toBe(0); expect(result.body.failed).toBe(2);
   expect(fixture.replies).toHaveBeenCalledTimes(2);
 });
 
 it("keeps an accepted LINE event successful when quality completion reaches D50", async () => {
   vi.useFakeTimers();
   try {
-    const fixture = deadlineFixture(); fixture.dependencies.receivedAtMs -= 49940;
+    const fixture = deadlineFixture(); fixture.dependencies.receivedAtMs -= 39940;
     fixture.events.splice(1);
     fixture.dependencies.settingsStore.getSettings = vi.fn(async () => ({
       translationMode: "zh-vi", textTranslationEnabled: true, audioTranscriptionEnabled: false,
     }));
+    fixture.replies.mockImplementation(async () => {await pause(10000);});
     Object.assign(fixture.dependencies, {qualityStore: {
       getConfig: async () => ({enabled: true, groups: [], startedAt: new Date()}),
       getRecordingEnabled: async () => true, saveOriginal: async () => {}, complete: pending,
     }});
-    const operation = fixture.run(); await vi.advanceTimersByTimeAsync(80);
+    const operation = fixture.run(); await vi.advanceTimersByTimeAsync(10080);
     const result = await operation; expect(result.body.processed).toBe(1); expect(result.body.failed).toBe(0);
     expect(fixture.replies).toHaveBeenCalledOnce();
   } finally {vi.useRealTimers();}

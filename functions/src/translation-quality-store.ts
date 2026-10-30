@@ -5,6 +5,8 @@ import {copyNmtOutputContents, type NmtOutputContents} from "./nmt-content-captu
 import {createHash} from "node:crypto";
 import {FieldPath, type Firestore} from "firebase-admin/firestore";
 import {isSupportedRuntimeProject} from "./production-target.js";
+import {ARCHIVE_MESSAGES, archiveMessageKey, ArchiveRedactedError} from "./conversation-archive.js";
+import {redactLinkedSnapshots, linkedMessageKeys} from "./conversation-archive-redaction.js";
 
 export const QUALITY_MESSAGES_COLLECTION = "lineTranslationMessages";
 export const QUALITY_CASES_COLLECTION = "lineTranslationErrorCases";
@@ -17,6 +19,7 @@ export function qualityGroupName(id: string): string {return `群組 ${hash([id]
 export interface QualityGroup {id: string; name: string}
 export interface QualityConfig {enabled: true; groups: QualityGroup[]; startedAt: Date}
 export interface QualityOriginal {
+  archiveEventId?: string | null;
   operationId?: string;
   groupId: string; groupName: string; senderUserId: string | null;
   webhookEventId: string | null; messageId: string | null; messageType: string; quotedMessageId?: string | null;
@@ -87,7 +90,7 @@ export function parseQualityConfig(value: unknown): QualityConfig | null {
 }
 // Allowlist projection deliberately excludes tokens, attachments and arbitrary errors; raw NMT text is explicitly captured separately.
 function originalData(record: QualityOriginal): Record<string, unknown> {
-  return {schemaVersion: 1, ...(record.operationId ? {operationId: record.operationId} : {}), groupId: record.groupId, groupName: record.groupName,
+  return {schemaVersion: 1, ...(record.operationId ? {operationId: record.operationId} : {}), ...(record.archiveEventId ? {archiveEventId: record.archiveEventId} : {}), groupId: record.groupId, groupName: record.groupName,
     senderUserId: record.senderUserId, webhookEventId: record.webhookEventId, messageId: record.messageId,
     quotedMessageId: record.quotedMessageId ?? null, messageType: record.messageType, eventTime: record.eventTime, recordedAt: record.recordedAt,
     sourceText: record.messageType === "text" ? record.sourceText : null, nmtInputContents: null, nmtOutputContents: null};
@@ -106,6 +109,11 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
   async getQuotedOriginal(groupId: string, messageId: string): Promise<QuoteContext> {
     if (!isSupportedRuntimeProject(this.options.projectId) || !isQualityGroupId(groupId) || !messageId || messageId.length > 200) return {status: "unknown"};
     try {
+      const archived = await this.firestore.collection(ARCHIVE_MESSAGES).doc(archiveMessageKey(groupId, messageId)).get();
+      if (archived.exists) {
+        const text = archived.get("sourceText");
+        return archived.get("redacted") !== true && typeof text === "string" && text.trim() && text.length <= 2000 ? {status: "known", text} : {status: "unknown"};
+      }
       const snapshot = await withinTime(() => this.firestore.collection(QUALITY_MESSAGES_COLLECTION)
         .where("groupId", "==", groupId).where("messageId", "==", messageId).limit(2).get(), 2000);
       if (snapshot.docs.length !== 1) return {status: "unknown"};
@@ -131,7 +139,7 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
     if (!isSupportedRuntimeProject(this.options.projectId) || !isQualityGroupId(groupId)) return false;
     const value = (await this.firestore.collection(RECORDING_GROUPS_COLLECTION).doc(groupId).get()).get("recordingEnabled");
     if (value !== undefined && typeof value !== "boolean") throw new Error("invalid_recording_setting");
-    return value !== false;
+    return value === true;
   }
   async setRecordingEnabled(groupId: string, enabled: boolean, changedBy: string, eventId: string, eventTime: number): Promise<{enabled: boolean; applied: boolean}> {
     if (!isSupportedRuntimeProject(this.options.projectId) || !isQualityGroupId(groupId) || !changedBy || !eventId || !Number.isFinite(eventTime) || Math.abs(eventTime) > 8640000000000000) throw new Error("invalid_recording_command");
@@ -139,7 +147,7 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
     const receipt = ref.collection("recordingCommands").doc(hash([eventId]));
     return this.firestore.runTransaction(async transaction => {
       const [group, previous] = await transaction.getAll(ref, receipt);
-      const current = group!.get("recordingEnabled") !== false;
+      const current = group!.get("recordingEnabled") === true;
       if (previous!.exists) return {enabled: current, applied: false};
       const lastTime = qualityDate(group!.get("recordingCommandAt"));
       const applied = !lastTime || eventTime > lastTime.getTime();
@@ -154,7 +162,8 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
     if (!isSupportedRuntimeProject(this.options.projectId)) return;
     const ref = this.firestore.collection(QUALITY_MESSAGES_COLLECTION).doc(qualityMessageId(record));
     await this.firestore.runTransaction(async transaction => {
-      const existing = await transaction.get(ref);
+      const [existing, archived] = await Promise.all([transaction.get(ref), record.messageId ? transaction.get(this.firestore.collection(ARCHIVE_MESSAGES).doc(archiveMessageKey(record.groupId, record.messageId))) : null]);
+      if (archived?.get("redacted")) {if (!completion) throw new ArchiveRedactedError(); return;}
       transaction.set(this.firestore.collection(RECORDING_GROUPS_COLLECTION).doc(record.groupId), {groupName: record.groupName}, {merge: true});
       if (!existing.exists) transaction.create(ref, originalData(record));
       if (completion && !existing.get("completedAt")) {
@@ -184,7 +193,7 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
       const data = doc.data();
       const eventTime = qualityDate(data.eventTime)!;
       cursor = {eventTime: eventTime.getTime(), id: doc.id};
-      if (groupIds.includes(data.groupId) && [data.sourceText, data.translatedText].some(text => typeof text === "string" && normalizeQualityKeyword(text).includes(keyword))) {
+      if (!data.redacted && groupIds.includes(data.groupId) && [data.sourceText, data.translatedText].some(text => typeof text === "string" && normalizeQualityKeyword(text).includes(keyword))) {
         messages.push({...data, id: doc.id, eventTime, recordedAt: qualityDate(data.recordedAt)!,
           ...(data.completedAt ? {completedAt: qualityDate(data.completedAt)!} : {})} as QualityMessage);
       }
@@ -201,20 +210,32 @@ export class FirestoreTranslationQualityStore implements TranslationQualityStore
       const documents = await transaction.getAll(sessionRef, receiptRef);
       const sessionDoc = documents[0]!; const receiptDoc = documents[1]!;
       const now = this.now();
-      if (receiptDoc.exists) return qualityDate(receiptDoc.get("expiresAt"))!.getTime() > now.getTime() ? receiptDoc.get("reply") as string | null : "回報操作已過期，請輸入 /翻譯錯誤 重新開始。";
-      const stored = hydrateDates(sessionDoc.data()) as Record<string, unknown> | undefined;
+      if (receiptDoc.exists) {
+        const keys = receiptDoc.get("messageKeys");
+        if (Array.isArray(keys) && keys.length) {
+          const states = await transaction.getAll(...keys.map(key => this.firestore.collection(ARCHIVE_MESSAGES).doc(key)));
+          if (states.some(state => state.get("redacted"))) return "相關訊息已收回。";
+        }
+        return qualityDate(receiptDoc.get("expiresAt"))!.getTime() > now.getTime() ? receiptDoc.get("reply") as string | null : "回報操作已過期，請輸入 /翻譯錯誤 重新開始。";
+      }
+      const safeStored = await redactLinkedSnapshots(this.firestore, transaction, sessionDoc.data());
+      const stored = hydrateDates(safeStored.value) as Record<string, unknown> | undefined;
       const session = stored && qualityDate(stored.expiresAt)!.getTime() > now.getTime() ? {...stored, expiresAt: qualityDate(stored.expiresAt)!.getTime()} as ReportSession : null;
       const result = await transition(session);
-      if (result.errorCase) {
-        const caseRef = this.firestore.collection(QUALITY_CASES_COLLECTION).doc(result.errorCase.id);
+      const safeResult = await redactLinkedSnapshots(this.firestore, transaction, result);
+      const final = safeResult.value as ReportTransition;
+      if (safeStored.changed || safeResult.changed) final.reply = "相關訊息已收回，請重新搜尋。";
+      const receiptKeys = [...new Set([...linkedMessageKeys(session), ...linkedMessageKeys(final)])];
+      if (final.errorCase) {
+        const caseRef = this.firestore.collection(QUALITY_CASES_COLLECTION).doc(final.errorCase.id);
         const existing = await transaction.get(caseRef);
-        if (!existing.exists) transaction.create(caseRef, {...result.errorCase, groupId: result.errorCase.draft.groupId ?? null, schemaVersion: 1});
+        if (!existing.exists) transaction.create(caseRef, {...final.errorCase, groupId: final.errorCase.draft.groupId ?? null, schemaVersion: 1});
       }
-      if (result.session) transaction.set(sessionRef, {...result.session, ownerUserId: ownerId, expiresAt: new Date(result.session.expiresAt)});
+      if (final.session) transaction.set(sessionRef, {...final.session, ownerUserId: ownerId, expiresAt: new Date(final.session.expiresAt)});
       else if (sessionDoc.exists) transaction.delete(sessionRef);
       // Unrelated owner DMs must not be collected when there is no active workflow.
-      if (result.reply !== null) transaction.create(receiptRef, {reply: result.reply, expiresAt: new Date(now.getTime() + REPORT_SESSION_MS)});
-      return result.reply;
+      if (final.reply !== null) transaction.create(receiptRef, {reply: final.reply, messageKeys: receiptKeys, expiresAt: new Date(now.getTime() + REPORT_SESSION_MS)});
+      return final.reply;
     }, {maxAttempts: 2});
   }
 }

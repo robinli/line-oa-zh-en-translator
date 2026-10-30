@@ -156,7 +156,7 @@ export function prepareDevPackage(options, {verify = runVerify} = {}) {
     for (const [name, hash] of Object.entries({...before, ...inputHashes})) {
       if (sha(resolve(plan.output, name)) !== hash || sha(privateInputs[name] ?? resolve(plan.root, name)) !== hash) throw Error(`Input changed during preparation: ${name}`);
     }
-    const requiredBuilt = [...builtEntries, ...(plan.configuration.engine === 'nmt-direct' ? ['nmt-direct-translator.js', 'nmt-literal-policy.js', 'nmt-exact-directives.js', 'nmt-integrity.js', 'nmt-transport-codec.js', 'nmt-request-profile.js'] : [])];
+    const requiredBuilt = [...builtEntries, ...(plan.configuration.engine === 'nmt-direct' ? ['nmt-direct-translator.js', 'nmt-literal-policy.js', 'nmt-exact-directives.js', 'nmt-integrity.js', 'nmt-transport-codec.js', 'nmt-request-profile.js'] : []), ...(plan.configuration.archiveEnabled ? ['conversation-archive.js','conversation-archive-store.js','conversation-archive-runtime.js','conversation-archive-worker.js','conversation-archive-redaction.js'] : [])];
     for (const name of requiredBuilt) if (!existsSync(resolve(plan.output, 'functions/lib', name))) throw Error(`Missing compiled deployment entry: lib/${name}`);
     deploymentLauncher(plan);
     const files = {...before, ...inputHashes};

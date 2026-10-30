@@ -1,4 +1,6 @@
 import {requestTimeout, remainingTimeout, withinTime, DeadlineScope, assertDeadlineActive} from "./translation-deadline.js";
+import {ArchivePersistenceError, ArchiveRedactedError, type ConversationArchiveStore, type ArchiveEvent} from "./conversation-archive.js";
+import {archiveEventDependencies} from "./conversation-archive-runtime.js";
 import {SolServiceError, type QuoteContext} from "./sol-review-types.js";
 import {copyNmtOutputContents, type NmtContentObserver} from "./nmt-content-capture.js";
 import {TranslationQualityError} from "./trade-policy.js";
@@ -93,6 +95,8 @@ export interface WebhookLogger {
 }
 
 export interface WebhookDependencies {
+  archiveStore?: ConversationArchiveStore;
+  beginTranslationRecord?: () => Promise<void>;
   solReviewEnabled?: boolean;
   receivedAtMs?: number;
   deadlineAtMs?: number;
@@ -175,9 +179,22 @@ export async function processLineWebhook(
 
   let qualityConfig: Awaited<ReturnType<TranslationQualityStore["getConfig"]>> | undefined;
   let qualityConfigRead = false;
+  let archiveFailures = 0;
   for (const event of webhookBody.events) {
     const counts = {processed: 0, ignored: 0, failed: 0};
+    const archiveErrorIgnored = (error: unknown): boolean => {
+      if (error instanceof ArchivePersistenceError) archiveFailures++;
+      if (error instanceof ArchiveRedactedError) {counts.ignored++; return true;}
+      return false;
+    };
     const runEvent = async () => {
+    let archiveRecord: ArchiveEvent | null = null;
+    if (dependencies.archiveStore) {
+      try {archiveRecord = await withinTime(() => dependencies.archiveStore!.capture(event, dependencies.ownerUserId), remainingTimeout(deadlineAtMs, 2000));}
+      catch {archiveFailures++; counts.failed++; dependencies.logger.error("Conversation admission failed.", {reason: "archive_store_error"}); return;}
+      if (archiveRecord) dependencies.logger.info("Conversation event received.", {reason: "archive_received", archiveEventId: archiveRecord.id, eventType: archiveRecord.eventType});
+      if (archiveRecord?.redacted && archiveRecord.eventType !== "unsend") {counts.ignored++; return;}
+    }
     let session: DevEventSession | undefined;
     const eventStarted = Date.now();
     if (dependencies.eventOperationStore) {
@@ -201,12 +218,19 @@ export async function processLineWebhook(
       qualityConfigRead = true;
     }
     const recordingCommand = isGroupTextMessageEvent(event) && RECORDING_COMMANDS.includes(event.message.text.trim());
-    const candidate = qualityConfig && !recordingCommand ? captureQualityOriginal(event, qualityConfig, new Date(), groupId => dependencies.logger.error("Translation quality event has no stable ID.", {reason: "quality_event_id_missing", groupKey: createHash("sha256").update(groupId).digest("hex")})) : null;
-    const recordingEnabled = candidate ? await qualityOperation(() => dependencies.qualityStore!.getRecordingEnabled(candidate.groupId), dependencies, candidate.webhookEventId ?? undefined) : false;
+    const captureConfig = dependencies.archiveStore ? archiveRecord ? {enabled: true as const, groups: [{id: archiveRecord.groupId, name: archiveRecord.groupName}], startedAt: new Date()} : null : qualityConfig;
+    const candidate = captureConfig && !recordingCommand ? captureQualityOriginal(event, captureConfig, new Date(), groupId => dependencies.logger.error("Translation quality event has no stable ID.", {reason: "quality_event_id_missing", groupKey: createHash("sha256").update(groupId).digest("hex")})) : null;
+    const recordingEnabled = dependencies.archiveStore ? Boolean(archiveRecord) : candidate ? await qualityOperation(() => dependencies.qualityStore!.getRecordingEnabled(candidate.groupId), dependencies, candidate.webhookEventId ?? undefined) : false;
     const original = recordingEnabled === true ? candidate : null;
     if (original && session) original.operationId = session.operationId;
     const trace: QualityTrace = {outcome: "ignored", deliveryStatus: "not_attempted", completedAt: new Date(), ...(session ? {operationId: session.operationId} : {})};
-    let eventDependencies = original || session ? traceQualityDependencies(dependencies, trace) : dependencies;
+    let eventDependencies = original || session || archiveRecord ? traceQualityDependencies(dependencies, trace) : dependencies;
+    let translationRecordStarted = false;
+    if (dependencies.archiveStore && original) eventDependencies = {...eventDependencies, beginTranslationRecord: async () => {
+      if (translationRecordStarted) return;
+      try {await withinTime(() => dependencies.qualityStore!.saveOriginal({...structuredClone(original), archiveEventId: archiveRecord?.id ?? null}), remainingTimeout(deadlineAtMs, 2000)); translationRecordStarted = true;}
+      catch (error) {if (error instanceof ArchiveRedactedError) throw error; throw new ArchivePersistenceError();}
+    }};
     if (session) {
       session.duration("settings_capture", Date.now() - captureStarted);
       const captured = eventDependencies;
@@ -223,12 +247,12 @@ export async function processLineWebhook(
           setTextTranslationEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setTextTranslationEnabled(...args)),
           setAudioTranscriptionEnabled: (...args) => eventSession.timed("settings", () => captured.settingsStore.setAudioTranscriptionEnabled(...args)),
         },
-        replier: {replyText: async (token, text, context) => {
+        replier: {supportsReplyObserver: captured.replier.supportsReplyObserver, replyText: async (token, text, context, _deadline, observer) => {
           const translationStatus = trace.outcome === "translated" ? "validated" : trace.outcome === "failed" ?
             eventSession.providerStatus === "provider_succeeded" && eventSession.telemetry.failureStage === "validation" ? "quality_rejected" : "service_error" : "skipped";
           if (trace.reason && !eventSession.telemetry.reason) eventSession.telemetry.reason = trace.reason;
           await eventSession.translation(translationStatus);
-          await eventSession.deliver(() => dependencies.solReviewEnabled ?
+          await eventSession.deliver(() => observer ? captured.replier.replyText(token, text, context, dependencies.solReviewEnabled ? deadlineAtMs : undefined, observer) : dependencies.solReviewEnabled ?
             captured.replier.replyText(token, text, context, deadlineAtMs) :
             context ? captured.replier.replyText(token, text, context) : captured.replier.replyText(token, text));
         }},
@@ -236,7 +260,8 @@ export async function processLineWebhook(
     }
     const failedBefore = counts.failed;
     if (original) dependencies.logger.info("Translation quality event received.", {reason: "quality_received", groupKey: createHash("sha256").update(original.groupId).digest("hex"), webhookEventId: original.webhookEventId, messageId: original.messageId});
-    if (original) await qualityOperation(() => eventDependencies.qualityStore!.saveOriginal(structuredClone(original)), eventDependencies, original.webhookEventId ?? undefined);
+    if (original && !dependencies.archiveStore) await qualityOperation(() => eventDependencies.qualityStore!.saveOriginal(structuredClone(original)), eventDependencies, original.webhookEventId ?? undefined);
+    if (archiveRecord) eventDependencies = archiveEventDependencies(eventDependencies, archiveRecord);
     try {
     if (
       isUserTextMessageEvent(event) &&
@@ -249,6 +274,7 @@ export async function processLineWebhook(
         );
         counts.processed += 1;
       } catch (error: unknown) {
+        if (archiveErrorIgnored(error)) return;
         counts.failed += 1;
         logEventFailure(
           "Failed to reply with a LINE user ID.",
@@ -269,7 +295,7 @@ export async function processLineWebhook(
       if (!qualityConfig && event.message.text.trim() === REPORT_COMMAND) reply = "翻譯錯誤回報目前無法使用，請稍後再試。";
       if (reply) {
         try {await eventDependencies.replier.replyText(event.replyToken, reply); counts.processed++;}
-        catch (error) {counts.failed++; logEventFailure("Failed to reply to translation report.", event.webhookEventId, error, eventDependencies);}
+        catch (error) {if (archiveErrorIgnored(error)) return; counts.failed++; logEventFailure("Failed to reply to translation report.", event.webhookEventId, error, eventDependencies);}
         return;
       }
     }
@@ -284,6 +310,7 @@ export async function processLineWebhook(
         );
         counts.processed += 1;
       } catch (error: unknown) {
+        if (archiveErrorIgnored(error)) return;
         counts.failed += 1;
         logEventFailure(
           "Failed to initialize joined LINE group.",
@@ -309,6 +336,7 @@ export async function processLineWebhook(
         else if (outcome === "failed") counts.failed += 1;
         else counts.ignored += 1;
       } catch (error: unknown) {
+        if (archiveErrorIgnored(error)) return;
         counts.failed += 1;
         logEventFailure(
           "Failed to process a LINE chat audio message.",
@@ -332,6 +360,7 @@ export async function processLineWebhook(
       else if (outcome === "failed") counts.failed += 1;
       else counts.ignored += 1;
     } catch (error: unknown) {
+      if (archiveErrorIgnored(error)) return;
       counts.failed += 1;
       logEventFailure(
         "Failed to process a LINE chat message.",
@@ -357,7 +386,7 @@ export async function processLineWebhook(
           await session.complete();
         } catch {dependencies.logger.error("DEV event completion unavailable.", {reason: "operation_completion_error", operationId: session.operationId});}
       }
-      if (original) {
+      if (original && (!dependencies.archiveStore || translationRecordStarted)) {
         if (counts.failed > failedBefore && trace.deliveryStatus !== "failed") {trace.outcome = "failed"; trace.reason ??= "event_processing_error";}
         trace.completedAt = new Date();
         if (trace.translationMode && dependencies.qualityMetadata) Object.assign(trace, dependencies.qualityMetadata(trace.translationMode as TranslationMode, trace.sourceLanguageCode ?? undefined));
@@ -368,10 +397,14 @@ export async function processLineWebhook(
         const saved = await qualityOperation(async () => {await dependencies.qualityStore!.complete(structuredClone(original), structuredClone(trace)); return true;}, dependencies, original.webhookEventId ?? undefined);
         if (saved) dependencies.logger.info("Translation quality capture completed.", {reason: "quality_capture", webhookEventId: original.webhookEventId, outcome: trace.outcome, deliveryStatus: trace.deliveryStatus});
       }
+      if (archiveRecord) {
+        trace.completedAt = new Date();
+        await qualityOperation(() => dependencies.archiveStore!.finish(archiveRecord!, structuredClone(trace)), eventDependencies, archiveRecord.webhookEventId ?? undefined);
+      }
     }
     };
     try {
-      if (dependencies.solReviewEnabled) await new DeadlineScope(deadlineAtMs).run(runEvent);
+      if (dependencies.solReviewEnabled || dependencies.archiveStore) await new DeadlineScope(deadlineAtMs).run(runEvent);
       else await runEvent();
     } catch {if (!counts.processed && !counts.ignored) counts.failed = 1;}
     processed += counts.processed; ignored += counts.ignored; failed += counts.failed;
@@ -383,7 +416,7 @@ export async function processLineWebhook(
     failed,
   });
 
-  return {status: 200, body: {ok: true, processed, ignored, failed}};
+  return {status: archiveFailures ? 503 : 200, body: {ok: !archiveFailures, processed, ignored, failed}};
 }
 
 type MessageOutcome = "processed" | "ignored" | "failed";
@@ -410,7 +443,7 @@ async function processGroupAudioMessage(
     }
     stage = "audio_download";
     const boundAudio = dependencies.solReviewEnabled;
-    const audioDeadline = dependencies.deadlineAtMs! - (settings.translationMode === "zh-vi" ? 0 : 10000);
+    const audioDeadline = dependencies.deadlineAtMs! - 10000;
     const audioContent = boundAudio ? await withinTime(() => dependencies.audioContentLoader.getMessageContent(event.message.id, maxAudioBytes, audioDeadline),
       remainingTimeout(audioDeadline)) : await dependencies.audioContentLoader.getMessageContent(event.message.id, maxAudioBytes);
     stage = "transcription";
@@ -428,6 +461,7 @@ async function processGroupAudioMessage(
     replyText = sourceText;
     let acceptedTranslation: string | null = null;
     if (languagePair) {
+      await dependencies.beginTranslationRecord?.();
       stage = "translation_setup";
       if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair);
       const {translator} = resolveTranslationProgram(dependencies, settings.translationMode);
@@ -443,6 +477,7 @@ async function processGroupAudioMessage(
     buildReplyMessages(replyText);
     if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair, {translatedText: acceptedTranslation, outcome: acceptedTranslation === null ? "skipped" : "translated"});
   } catch (error: unknown) {
+    if (error instanceof ArchivePersistenceError || error instanceof ArchiveRedactedError) throw error;
     return reportTranslationFailure(event, settings.translationMode, sourceText, languagePair, stage, error, dependencies);
   }
   // Delivery errors must not trigger another reply or be saved as translation failures.
@@ -555,6 +590,7 @@ async function processGroupTextMessage(
   let translatedMentions: UserMention[] = [];
   let stage: FailureStage = "translation_setup";
   try {
+    await dependencies.beginTranslationRecord?.();
     if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair);
     const {translator, mentionAliases} = resolveTranslationProgram(dependencies, settings.translationMode);
     const translationArgs: [string, string, string, TranslationContext?] = [
@@ -588,6 +624,7 @@ async function processGroupTextMessage(
     buildReplyMessages(translatedText, translatedMentions.slice(0, 20));
     if (dependencies.qualityTrace) Object.assign(dependencies.qualityTrace, languagePair, {translatedText: acceptedTranslation, outcome: "translated"});
   } catch (error: unknown) {
+    if (error instanceof ArchivePersistenceError || error instanceof ArchiveRedactedError) throw error;
     return reportTranslationFailure(event, settings.translationMode, text, languagePair, stage, error, dependencies);
   }
 
@@ -615,6 +652,7 @@ async function reportTranslationFailure(
   dependencies: WebhookDependencies,
 ): Promise<"failed"> {
   assertDeadlineActive();
+  if (event.message.type === "text" || languagePair) await dependencies.beginTranslationRecord?.();
   const reason = failureReason(error, stage);
   if (dependencies.eventSession) {
     if (error instanceof SolServiceError) {
@@ -641,6 +679,7 @@ async function reportTranslationFailure(
     dependencies.solReviewEnabled ? withinTime(() => dependencies.failureStore.save(structuredClone(record)), remainingTimeout(dependencies.deadlineAtMs, 2000)) : Promise.resolve().then(() => dependencies.failureStore.save(record)),
     Promise.resolve().then(() => dependencies.replier.replyText(event.replyToken, TRANSLATION_FAILURE_REPLY)),
   ]);
+  if (results[1].status === "rejected" && (results[1].reason instanceof ArchivePersistenceError || results[1].reason instanceof ArchiveRedactedError)) throw results[1].reason;
   if (results[0].status === "rejected") dependencies.logger.error("Failed to save translation failure.", {webhookEventId: event.webhookEventId, reason: "failure_store_error"});
   if (results[1].status === "rejected") dependencies.logger.error("Failed to deliver translation failure symbol.", {webhookEventId: event.webhookEventId, reason: "line_reply_error"});
   return "failed";
@@ -648,7 +687,7 @@ async function reportTranslationFailure(
 
 async function reviewContext(event: GroupTextMessageEvent | GroupAudioMessageEvent, mode: TranslationMode,
   dependencies: WebhookDependencies): Promise<TranslationContext | undefined> {
-  if (!dependencies.solReviewEnabled || mode === "zh-vi") return undefined;
+  if (!dependencies.solReviewEnabled) return undefined;
   requestTimeout(dependencies.deadlineAtMs);
   const quoted = (event.message as {quotedMessageId?: unknown}).quotedMessageId;
   let quoteContext: QuoteContext = {status: typeof quoted === "string" && quoted ? "unknown" : "not_quoted"};
@@ -767,8 +806,8 @@ function logEventFailure(
 }
 
 function scopedTranslator(translator: Translator, mode: TranslationMode, deadline: number): Translator {
-  const end = deadline - (mode === "zh-vi" ? 0 : 10000);
-  const run = <T>(operation: () => Promise<T>) => withinTime(operation, remainingTimeout(end, mode === "zh-vi" ? 50000 : 40000));
+  const end = deadline - 10000;
+  const run = <T>(operation: () => Promise<T>) => withinTime(operation, remainingTimeout(end, 40000));
   return {translate: (...args) => run(() => translator.translate(...args)),
     ...(translator.translateWithRanges ? {translateWithRanges: (...args: Parameters<NonNullable<Translator["translateWithRanges"]>>) =>
       run(() => translator.translateWithRanges!(...args))} : {})};
@@ -783,6 +822,7 @@ function scopedWebhookDependencies(dependencies: WebhookDependencies): WebhookDe
       setTextTranslationEnabled: (...args) => run(() => dependencies.settingsStore.setTextTranslationEnabled(...args)),
       setAudioTranscriptionEnabled: (...args) => run(() => dependencies.settingsStore.setAudioTranscriptionEnabled(...args)),
     },
-    replier: {replyText: (token, text, context) => run(() => dependencies.replier.replyText(token, text, context, end), 15000)},
+    replier: {supportsReplyObserver: dependencies.replier?.supportsReplyObserver, replyText: (token, text, context, _deadline, observer) =>
+      run(() => observer ? dependencies.replier.replyText(token, text, context, end, observer) : dependencies.replier.replyText(token, text, context, end), 15000)},
   };
 }

@@ -7,6 +7,9 @@ import {NmtGlossaryTranslator, type NmtGlossaryClient, type NmtGlossaryMetric} f
 import {BusinessTranslator, VertexTextGenerator} from "./business-translator.js";
 import {TranslationLlmTranslator, type TranslationLlmMetric} from "./translation-llm-translator.js";
 import {GoogleCloudTranslator, type Translator} from "./services.js";
+import {VietnameseNmtTranslator, VietnameseNmtOutputRejected} from "./vietnamese-nmt-translator.js";
+import {createVietnameseLiteralManifest} from "./vietnamese-literal-policy.js";
+import {createNmtTransport} from "./nmt-transport-codec.js";
 
 export interface TranslationConfiguration {
   solReview?: {client: SolClient; stages: SolStageControl; onRecord?: (record: SolReviewRecord) => void};
@@ -22,6 +25,21 @@ export interface TranslationConfiguration {
   onNmtDirectMetric?: (metric: NmtDirectMetric) => void;
   translationLlm?: {location: string; glossaryZhEn: string; glossaryEnZh: string};
   onTranslationMetric?: (metric: TranslationLlmMetric) => void;
+}
+
+export interface VietnameseTranslationConfiguration {
+  projectId: string;
+  client: NmtTransport;
+  onMetric?: ConstructorParameters<typeof VietnameseNmtTranslator>[2];
+  solReview?: TranslationConfiguration["solReview"];
+}
+export function createVietnameseTranslator(config: VietnameseTranslationConfiguration): Translator {
+  const nmt = new VietnameseNmtTranslator(config.projectId, config.client, config.onMetric);
+  if (!config.solReview) return nmt;
+  return new SolReviewedTranslator(nmt, config.solReview.client, config.solReview.stages, [], config.solReview.onRecord, {
+    createTransport: (text, context) => createNmtTransport(createVietnameseLiteralManifest(text, context)),
+    rejectionReason: error => error instanceof VietnameseNmtOutputRejected ? error.reason : undefined,
+  });
 }
 
 export function createTranslator(config: TranslationConfiguration): Translator {

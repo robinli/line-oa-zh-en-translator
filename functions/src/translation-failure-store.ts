@@ -2,6 +2,8 @@ import {deadlineFirestore} from "./translation-deadline.js";
 import {createHash, randomUUID} from "node:crypto";
 import type {TranslationMode} from "./domain.js";
 import type {FailureStage} from "./translation-failures.js";
+import type {Firestore} from "firebase-admin/firestore";
+import {ARCHIVE_MESSAGES, archiveMessageKey} from "./conversation-archive.js";
 
 export const TRANSLATION_FAILURE_COLLECTION = "lineTranslationFailures";
 export interface TranslationFailureRecord {
@@ -40,7 +42,14 @@ export class FirestoreTranslationFailureStore implements TranslationFailureStore
       if (record[field] !== undefined) data[field] = record[field];
     }
     try {
-      await this.firestore.collection(TRANSLATION_FAILURE_COLLECTION).doc(translationFailureId(record)).create(data);
+      const db = this.firestore as unknown as Firestore;
+      if (record.messageId && typeof db.runTransaction === "function") {
+        await db.runTransaction(async tx => {
+          const state = await tx.get(db.collection(ARCHIVE_MESSAGES).doc(archiveMessageKey(record.groupId, record.messageId!)));
+          if (state.get("redacted")) return;
+          tx.create(db.collection(TRANSLATION_FAILURE_COLLECTION).doc(translationFailureId(record)), data);
+        }, {maxAttempts: 2});
+      } else await this.firestore.collection(TRANSLATION_FAILURE_COLLECTION).doc(translationFailureId(record)).create(data);
     } catch (error: unknown) {
       // create is atomic: preserve the first failure, including its content and timestamp, on redelivery.
       if (error && typeof error === "object" && "code" in error && error.code === 6) return;

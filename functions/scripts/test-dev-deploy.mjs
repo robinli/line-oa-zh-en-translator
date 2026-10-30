@@ -7,7 +7,17 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {prepareDevPackage, validateDevPackage, DEV_PROJECT} from './prepare-dev-deploy.mjs';
 import {glossaryRecordFile} from './nmt-glossary-spec.mjs';
-import {devRuntimeConfiguration} from './dev-request-profile.mjs';
+import {devRuntimeConfiguration,devDeployTargets,devDeployOptions} from './dev-request-profile.mjs';
+
+test('archive switch controls both deployment functions and rejects ambiguous flags',()=>{
+ const env='TRANSLATION_ENGINE=nmt-direct\r\nNMT_REQUEST_PROFILE=nmt-direct-v1\r\nTEST_RUNTIME_SERVICE_ACCOUNT=nmt-test-runtime@line-auto-translate-bot-dev.iam.gserviceaccount.com\r\n';
+ assert.equal(devDeployTargets(devRuntimeConfiguration(env)),'functions:lineWebhook');
+ assert.equal(devDeployTargets(devRuntimeConfiguration(env+'CONVERSATION_ARCHIVE_ENABLED=true\r\n')),'functions:lineWebhook,functions:conversationArchiveWorker');
+ assert.deepEqual(devDeployOptions(devRuntimeConfiguration(env)),['--only','functions:lineWebhook']);
+ assert.deepEqual(devDeployOptions(devRuntimeConfiguration(env+'CONVERSATION_ARCHIVE_ENABLED=false\r\n')),['--only','functions:lineWebhook']);
+ assert.deepEqual(devDeployOptions(devRuntimeConfiguration(env+'CONVERSATION_ARCHIVE_ENABLED=true\r\n')),['--only','functions:lineWebhook,functions:conversationArchiveWorker','--force']);
+ for(const bad of ['CONVERSATION_ARCHIVE_ENABLED=invalid\r\n','CONVERSATION_ARCHIVE_ENABLED=true\r\nCONVERSATION_ARCHIVE_ENABLED=false\r\n'])assert.throws(()=>devRuntimeConfiguration(env+bad));
+});
 
 function fixture(t) {
   const root = mkdtempSync(resolve(tmpdir(), 'dev-package-test-'));

@@ -2,6 +2,8 @@ import type {RestoredTextRange, TextRange} from "./message-text.js";
 import {assertLiteralIntegrity, findLiteralMatches, type LiteralPlacement} from "./nmt-integrity.js";
 import {literalParagraphs, type LiteralManifest} from "./nmt-literal-policy.js";
 import {TranslationQualityError} from "./trade-policy.js";
+import {matchesPreservedTermWhitespace, hasSamePreservedTermCounts} from "./preserved-terms.js";
+import {readNmtHtmlAttributes} from "./nmt-html-attributes.js";
 
 export function escapeNmtHtml(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
@@ -16,15 +18,8 @@ export function decodeNmtHtml(text: string): string {
   });
 }
 function attributes(text: string, allowed: readonly string[]): Record<string, string> {
-  const result: Record<string, string> = {}; let cursor = 0;
-  for (const match of text.matchAll(/\s+([A-Za-z]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/gu)) {
-    if (text.slice(cursor, match.index).trim()) throw new TranslationQualityError("invalid_response_format");
-    const name = match[1]!.toLowerCase();
-    if (!allowed.includes(name) || Object.hasOwn(result, name)) throw new TranslationQualityError("invalid_response_format");
-    result[name] = decodeNmtHtml(match[2] ?? match[3]!); cursor = match.index + match[0].length;
-  }
-  if (text.slice(cursor).trim()) throw new TranslationQualityError("invalid_response_format");
-  return result;
+  try {return readNmtHtmlAttributes(text, allowed, decodeNmtHtml);}
+  catch {throw new TranslationQualityError("invalid_response_format");}
 }
 const separators = /[\r\n\u2028\u2029]/u;
 const overlaps = (a: {start: number; length: number}, b: {start: number; length: number}) => a.start < b.start + b.length && b.start < a.start + a.length;
@@ -137,18 +132,19 @@ export function createNmtTransport(manifest: LiteralManifest) {
           append(htmlBody.slice(position, span.index));
           const data = attributes(span[1]!, ["id", "class", "translate"]);
           if (separators.test(span[2]!)) throw new TranslationQualityError("paragraph_structure_changed");
-          const decoded = decodeNmtHtml(span[2]!);
+          let decoded = decodeNmtHtml(span[2]!);
           if (separators.test(decoded)) throw new TranslationQualityError("paragraph_structure_changed");
-          (spanRanges[index] ??= []).push({start: part.length, length: decoded.length});
           if (data.id !== undefined) {
             const occurrence = manifest.occurrences.find(item => item.id === data.id);
             if (!occurrence || occurrence.paragraph !== index || seen.has(occurrence.id)) throw new TranslationQualityError("exact_occurrence_changed");
+            if (!occurrence.nativeRanges.length && matchesPreservedTermWhitespace(occurrence.value, decoded)) decoded = occurrence.value;
             // Provider whitespace at a span edge is presentation, not a changed literal.
             const start = decoded.indexOf(occurrence.value);
             if (start < 0 || /[^\t\p{Zs}]/u.test(decoded.slice(0, start) + decoded.slice(start + occurrence.length))) throw new TranslationQualityError("exact_occurrence_changed");
             seen.add(occurrence.id);
             anchored.push({id: occurrence.id, paragraph: index, start: part.length + start, length: occurrence.length});
           }
+          (spanRanges[index] ??= []).push({start: part.length, length: decoded.length});
           part += decoded; position = span.index + span[0].length;
         }
         append(htmlBody.slice(position));
@@ -207,6 +203,7 @@ export function createNmtTransport(manifest: LiteralManifest) {
         text += part + manifest.paragraphs[index]!.separator;
       }
       assertLiteralIntegrity(manifest, paragraphs, placements);
+      if (!hasSamePreservedTermCounts(manifest.original, text)) throw new TranslationQualityError("exact_occurrence_changed");
       if (!text.trim() || text.length > 4500) throw new TranslationQualityError("output_too_long");
       return {text, ranges: ranges.sort((a, b) => a.start - b.start)};
     },
