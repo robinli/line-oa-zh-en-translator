@@ -1,5 +1,9 @@
 import {SolResponsesClient} from "./sol-responses-client.js";
-import {copySolReviewRecord} from "./sol-review-types.js";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
+import {FirestoreConversationArchiveStore} from "./conversation-archive-store.js";
+import {ARCHIVE_JOBS} from "./conversation-archive.js";
+import {processArchiveJob, LineArchiveContentSource, GoogleArchiveObjectStore} from "./conversation-archive-worker.js";
+import {copySolReviewRecord, type SolReviewRecord, type SolStage} from "./sol-review-types.js";
 import type {NmtContentObserver} from "./nmt-content-capture.js";
 import {resolveNmtRuntimeProfile, type NmtRequestProfile} from "./nmt-request-profile.js";
 import {FirestoreDevEventOperationStore} from "./dev-event-operation-store.js";
@@ -24,13 +28,13 @@ import {
 } from "./services.js";
 import {processLineWebhook} from "./webhook.js";
 import {createTranslationProgramRouter} from "./translation-program.js";
-import {VietnameseNmtTranslator} from "./vietnamese-nmt-translator.js";
-import {createTranslator} from "./translator-factory.js";
+import {createTranslator, createVietnameseTranslator} from "./translator-factory.js";
 import {DEFAULT_PROTECTED_NAMES} from "./trade-policy.js";
 import {parseMentionAliases, type MentionAlias} from "./mentions.js";
 
 const openaiApiKey = defineSecret("OPENAI_API_KEY");
 const solReviewEnabled = defineBoolean("SOL_REVIEW_ENABLED", {default: false});
+const conversationArchiveEnabled = defineBoolean("CONVERSATION_ARCHIVE_ENABLED", {default: false});
 const lineChannelSecret = defineSecret("LINE_CHANNEL_SECRET");
 const lineChannelAccessToken = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
 const lineOwnerUserId = defineSecret("LINE_OWNER_USER_ID");
@@ -65,6 +69,16 @@ function controlledClient(session?: DevEventSession, profile: NmtRequestProfile 
   return new ControlledNmtClient(transport, new FirestoreNmtBudget(getFirestore(firebaseApp), NMT_TEST_PROJECT), "manual", (deadlineAtMs) => transport.identity(deadlineAtMs), true, session, profile);
 }
 
+function solReviewConfiguration(session: DevEventSession) {
+  return {client: new SolResponsesClient(openaiApiKey.value()),
+    stages: {begin: (stage: SolStage, record: SolReviewRecord) => session.beginSolStage(stage, record),
+      finish: (stage: SolStage, record: SolReviewRecord) => session.finishSolStage(stage, record)},
+    onRecord: (record: SolReviewRecord) => {
+      session.telemetry.solReview = copySolReviewRecord(record);
+      if (record.finalSource) {session.telemetry.reason = null; session.telemetry.failureStage = null;}
+    }};
+}
+
 const eventTranslationProgram = (session: DevEventSession, observer?: NmtContentObserver) => createTranslationProgramRouter(() => {
   let aliases: MentionAlias[] = [];
   try { aliases = parseMentionAliases(mentionAliases.value()); } catch {
@@ -84,15 +98,7 @@ const eventTranslationProgram = (session: DevEventSession, observer?: NmtContent
         glossaryZhEn: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.zhEn,
         glossaryEnZh: "projects/" + NMT_TEST_PROJECT + "/locations/us-central1/glossaries/" + NMT_GLOSSARIES.enZh, client},
       ...(profile === "legacy-glossary" ? {} : {nmtDirect: {profile, client}}),
-      ...(solReviewEnabled.value() ? {solReview: {
-        client: new SolResponsesClient(openaiApiKey.value()),
-        stages: {begin: (stage, record) => session.beginSolStage(stage, record),
-          finish: (stage, record) => session.finishSolStage(stage, record)},
-        onRecord: record => {
-          session.telemetry.solReview = copySolReviewRecord(record);
-          if (record.finalSource) {session.telemetry.reason = null; session.telemetry.failureStage = null;}
-        },
-      }} : {}),
+      ...(solReviewEnabled.value() ? {solReview: solReviewConfiguration(session)} : {}),
       onNmtDirectMetric: metric => {
         Object.assign(session.telemetry, {engine: metric.engine, adapterVersion: metric.adapterVersion,
           protectionVersion: metric.protectionVersion, requestProfile: metric.profile,
@@ -122,19 +128,20 @@ const eventTranslationProgram = (session: DevEventSession, observer?: NmtContent
     }),
     mentionAliases: aliases,
   };
-}, () => new VietnameseNmtTranslator(projectID.value(), controlledClient(session, "legacy-glossary", observer), metric => {
+}, () => createVietnameseTranslator({projectId: projectID.value(), client: controlledClient(session, "legacy-glossary", observer),
+  ...(solReviewEnabled.value() ? {solReview: solReviewConfiguration(session)} : {}), onMetric: metric => {
   session.telemetry.adapterVersion = metric.adapterVersion;
   session.telemetry.protectionVersion = "literal-code-20260929";
   if (session.providerStatus === "not_started") session.telemetry.outputCharacters = metric.outputCharacters;
   if (metric.outcome === "quality_rejected" && session.providerStatus === "provider_succeeded" && session.telemetry.failureStage !== "provider_completion") {session.telemetry.reason = "nmt_output_validation"; session.telemetry.failureStage = "validation";}
   session.duration("validation", Math.max(0, metric.elapsedMs - (session.telemetry.durations.identity ?? 0) - (session.telemetry.durations.ledger ?? 0) - (session.telemetry.durations.provider ?? 0)));
   logger.info("Vietnamese NMT request completed.", {operationId: session.operationId, ...metric});
-}));
+}}));
 
 export const lineWebhook = onRequest(
   {
     region: "asia-east1",
-    memory: "256MiB",
+    memory: "512MiB",
     timeoutSeconds: 60,
     maxInstances: 5,
     serviceAccount:
@@ -153,6 +160,7 @@ export const lineWebhook = onRequest(
       {
         receivedAtMs,
         solReviewEnabled: solReviewEnabled.value(),
+        ...(conversationArchiveEnabled.value() ? {archiveStore: new FirestoreConversationArchiveStore(getFirestore(firebaseApp), projectID.value())} : {}),
         channelSecret: lineChannelSecret.value(),
         eventOperationStore: new FirestoreDevEventOperationStore(getFirestore(firebaseApp), projectID.value(), process.env.K_REVISION ?? null),
         createEventTranslationProgram: eventTranslationProgram,
@@ -182,4 +190,12 @@ export const lineWebhook = onRequest(
     response.status(result.status).json(result.body);
   },
 );
+
+export const conversationArchiveWorker = onDocumentCreated({document: `${ARCHIVE_JOBS}/{jobId}`, region: "asia-east1",
+  retry: true, timeoutSeconds: 540, memory: "512MiB", maxInstances: 2, concurrency: 4, serviceAccount: runtimeServiceAccount,
+  secrets: [lineChannelAccessToken]}, async event => {
+  if (!conversationArchiveEnabled.value()) return;
+  await processArchiveJob(event.params.jobId, new FirestoreConversationArchiveStore(getFirestore(firebaseApp), projectID.value()),
+    new LineArchiveContentSource(lineChannelAccessToken.value()), new GoogleArchiveObjectStore(projectID.value()));
+});
 

@@ -1,5 +1,6 @@
 import {resolveExactDirectives, type ExactDirective} from "./nmt-exact-directives.js";
 import {findLiteralCodeRanges} from "./literal-codes.js";
+import {findPreservedTermRanges} from "./preserved-terms.js";
 import type {TextRange} from "./message-text.js";
 import type {TranslationContext} from "./services.js";
 import {DEFAULT_PROTECTED_NAMES, TranslationQualityError} from "./trade-policy.js";
@@ -57,6 +58,7 @@ export function createLiteralManifest(text: string, names: readonly string[] = D
     collect(new RegExp("(?<![A-Za-z])" + escaped + "(?![A-Za-z])", "giu"), "configured-name");
   }
   candidates.push(...findLiteralCodeRanges(text).map(range => ({...range, reason: "literal-code"})));
+  candidates.push(...findPreservedTermRanges(text).map(range => ({...range, reason: "registered-term"})));
   // A tight pricing suffix is explicitly exact under the 9/29 policy.
   collect(/(?<![A-Za-z])(?:US\$|NT\$|HK\$|S\$|USD|TWD|NTD|HKD|SGD|EUR|GBP|JPY|CNY|RMB|VND|AUD|CAD|CHF|INR)[ \t]*[+\-−]?[0-9０-９]+(?:[,.，．][0-9０-９]+)*[／/][A-Za-z0-9Ａ-Ｚａ-ｚ０-９\-－_$%*+=.~^!]+/giu, "tight-price");
   const directives = resolveExactDirectives(text, paragraphs, explicit);

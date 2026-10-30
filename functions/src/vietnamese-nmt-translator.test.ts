@@ -2,6 +2,82 @@ import {describe, expect, it, vi} from "vitest";
 import {VietnameseNmtTranslator, NmtTranslationError} from "./vietnamese-nmt-translator.js";
 
 describe("independent Vietnamese NMT", () => {
+  it("keeps the approved phrase exact in NMT, including source whitespace", async () => {
+    const translateText = vi.fn().mockImplementation(async ({contents}: {contents: string[]}) => [{
+      translations: contents.map(html => ({translatedText: html.replace("Vui lòng kiểm tra", "請確認")})),
+    }]);
+    const source = "Vui lòng kiểm tra mít  color.\r\n\r\nmít color";
+    const result = await new VietnameseNmtTranslator("test-project", {translateText}).translate(source, "vi", "zh-TW");
+    expect(result).toBe("請確認 mít  color.\r\n\r\nmít color");
+    expect(translateText.mock.calls[0]![0].contents).toEqual([
+      'Vui lòng kiểm tra <span translate="no" class="notranslate" id="m0">mít  color</span>.',
+    ]);
+  });
+  it("does not call NMT for a message consisting only of the approved phrase", async () => {
+    const translateText = vi.fn();
+    expect(await new VietnameseNmtTranslator("test-project", {translateText}).translate("mít color", "vi", "zh-TW")).toBe("mít color");
+    expect(translateText).not.toHaveBeenCalled();
+  });
+  it("restores source whitespace when NMT collapses only an approved phrase span", async () => {
+    const translateText = vi.fn().mockImplementation(async ({contents}: {contents: string[]}) => [{
+      translations: contents.map(html => ({translatedText: html.replace("mít  color", "mít color").replace("Kiểm tra", "請確認")})),
+    }]);
+    expect(await new VietnameseNmtTranslator("test-project", {translateText}).translate("Kiểm tra mít  color.", "vi", "zh-TW"))
+      .toBe("請確認 mít  color.");
+    await expect(new VietnameseNmtTranslator("test-project", {translateText}).translate("mít  color Kiểm tra", "vi", "zh-TW", {protectedRanges: [{start: 0, length: 10}]}))
+      .rejects.toThrow(NmtTranslationError);
+  });
+  it("unions a protected term with an overlapping literal code", async () => {
+    const translateText = vi.fn().mockImplementation(async ({contents}: {contents: string[]}) => [{
+      translations: contents.map(html => ({translatedText: html.replace("Kiểm tra", "請確認")})),
+    }]);
+    expect(await new VietnameseNmtTranslator("test-project", {translateText}).translate("Kiểm tra mít color-AB.", "vi", "zh-TW"))
+      .toBe("請確認 mít color-AB.");
+    expect(translateText.mock.calls[0]![0].contents[0]).toContain('id="m0">mít color-AB</span>');
+  });
+  it("does not interpret ordinary jackfruit as the protected label", async () => {
+    const translateText = vi.fn().mockResolvedValue([{translations: [{translatedText: "我買了菠蘿蜜。"}]}]);
+    expect(await new VietnameseNmtTranslator("test-project", {translateText}).translate("Tôi mua mít.", "vi", "zh-TW"))
+      .toBe("我買了菠蘿蜜。");
+    expect(translateText.mock.calls[0]![0].contents).toEqual(["Tôi mua mít."]);
+  });
+  it("lets a native mention take precedence over the protected phrase", async () => {
+    const translateText = vi.fn().mockImplementation(async ({contents}: {contents: string[]}) => [{
+      translations: contents.map(html => ({translatedText: html.replace("請確認", "Vui lòng kiểm tra")})),
+    }]);
+    const result = await new VietnameseNmtTranslator("test-project", {translateText})
+      .translateWithRanges("@mít color 請確認", "zh-TW", "vi", {protectedRanges: [{start: 0, length: 10}]});
+    expect(result.ranges).toEqual([{sourceStart: 0, start: 0, length: 10}]);
+    expect(translateText.mock.calls[0]![0].contents[0].match(/<span/gu)).toHaveLength(1);
+  });
+  it.each(["replace", "drop", "duplicate", "move"])("rejects NMT that would %s the protected phrase", async corruption => {
+    const translateText = vi.fn().mockImplementation(async ({contents}: {contents: string[]}) => {
+      const first = contents[0]!, second = contents[1]!;
+      const span = first.match(/<span[^>]*>.*?<\/span>/u)![0];
+      return [{translations: [
+        {translatedText: corruption === "replace" ? first.replace("mít color", "菠蘿蜜") :
+          corruption === "drop" || corruption === "move" ? first.replace(span, "") : first + span},
+        {translatedText: corruption === "move" ? second + span : second},
+      ]}];
+    });
+    await expect(new VietnameseNmtTranslator("test-project", {translateText}).translate("Kiểm tra mít color.\nCảm ơn.", "vi", "zh-TW"))
+      .rejects.toThrow(NmtTranslationError);
+  });
+  it.each(["mít color", "mít  color", "MÍT\tCOLOR"])("rejects an extra ordinary copy of the approved label: %s", extra => {
+    const translateText = vi.fn().mockImplementation(async ({contents}: {contents: string[]}) => [{
+      translations: contents.map(html => ({translatedText: html.replace("</span>", "</span> " + extra)})),
+    }]);
+    return expect(new VietnameseNmtTranslator("test-project", {translateText}).translate("A mít  color B.\nC.", "vi", "zh-TW"))
+      .rejects.toThrow(NmtTranslationError);
+  });
+  it.each(['id="m0" id="unknown"', 'id="m0" ID="m0"', 'id="m0" bogus="x"', 'id="m0" broken', 'id="m00"'])(
+    "rejects ambiguous or incomplete protected attributes: %s", attrs => {
+      const translateText = vi.fn().mockImplementation(async ({contents}: {contents: string[]}) => [{
+        translations: contents.map(html => ({translatedText: html.replace('id="m0"', attrs)})),
+      }]);
+      return expect(new VietnameseNmtTranslator("test-project", {translateText}).translate("A mít color B.", "vi", "zh-TW"))
+        .rejects.toThrow(NmtTranslationError);
+    });
   it.each([["zh-TW", "vi", "你好", "Xin chào"], ["vi", "zh-TW", "Xin chào", "你好"]])(
     "uses explicit NMT for %s to %s", async (source, target, input, output) => {
       const translateText = vi.fn().mockResolvedValue([{translations: [{translatedText: output}]}]);

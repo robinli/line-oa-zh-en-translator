@@ -6,6 +6,12 @@ import type {RestoredTextRange} from "./message-text.js";
 import {LineGroupMemberVerifier, type GroupMemberVerifier, type MentionReplyContext} from "./mentions.js";
 import {buildReplyMessages} from "./line-messages.js";
 import type {messagingApi} from "@line/bot-sdk";
+import type {ReplyArchiveResult} from "./conversation-archive.js";
+
+export interface LineReplyObserver {
+  prepare(messages: readonly unknown[]): Promise<void>;
+  complete(result: ReplyArchiveResult): Promise<void>;
+}
 
 export interface TranslationContext {
   quoteContext?: import("./sol-review-types.js").QuoteContext;
@@ -36,7 +42,8 @@ export interface AudioContentLoader {
 }
 
 export interface LineReplier {
-  replyText(replyToken: string, text: string, context?: MentionReplyContext, deadlineAtMs?: number): Promise<void>;
+  supportsReplyObserver?: boolean;
+  replyText(replyToken: string, text: string, context?: MentionReplyContext, deadlineAtMs?: number, observer?: LineReplyObserver): Promise<void>;
 }
 
 export interface ConversationSettings {
@@ -79,7 +86,7 @@ export class FirestoreConversationSettingsStore implements ConversationSettingsS
     const snapshot = await this.conversationDocument(conversationId).get();
     const storedMode = snapshot.get("translationMode");
     return {
-      recordingEnabled: snapshot.get("recordingEnabled") !== false,
+      recordingEnabled: snapshot.get("recordingEnabled") === true,
       textTranslationEnabled: readFeatureFlag(snapshot, "textTranslationEnabled"),
       audioTranscriptionEnabled: readFeatureFlag(snapshot, "audioTranscriptionEnabled"),
       translationMode: storedMode === "zh-to-en" || storedMode === "en-to-zh" ||
@@ -383,6 +390,7 @@ export class LineMessagingApiContentLoader implements AudioContentLoader {
 }
 
 export class LineMessagingApiReplier implements LineReplier {
+  readonly supportsReplyObserver = true;
   private client: MessagingClient | undefined;
   private readonly verifier: GroupMemberVerifier;
 
@@ -392,7 +400,7 @@ export class LineMessagingApiReplier implements LineReplier {
     this.verifier = verifier ?? new LineGroupMemberVerifier(channelAccessToken);
   }
 
-  public async replyText(replyToken: string, text: string, context?: MentionReplyContext, deadlineAtMs?: number): Promise<void> {
+  public async replyText(replyToken: string, text: string, context?: MentionReplyContext, deadlineAtMs?: number, observer?: LineReplyObserver): Promise<void> {
     const plainMessages = buildReplyMessages(text);
     let mentions = context?.mentions.slice(0, 20) ?? [];
     if (mentions.length && context) {
@@ -414,18 +422,31 @@ export class LineMessagingApiReplier implements LineReplier {
         });
         remainingTimeout(deadlineAtMs);
         if (!response.ok) throw Object.assign(new Error("LINE request rejected."), {status: response.status});
-        await response.arrayBuffer(); remainingTimeout(deadlineAtMs);
+        const body = await response.json(); remainingTimeout(deadlineAtMs); return body;
       }};
     } else {client = await this.getClient(); assertDeadlineActive();}
-    try {
+    const send = async (payload: typeof messages) => {
       if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs);
-      await client.replyMessage({replyToken, messages});
+      await observer?.prepare(payload);
+      if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs);
+      let result: unknown;
+      try {result = await client.replyMessage({replyToken, messages: payload});}
+      catch (error) {
+        const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
+        await observer?.complete({status: status >= 400 && status < 500 ? "rejected" : "unknown"}); throw error;
+      }
+      const sent = result && typeof result === "object" && "sentMessages" in result && Array.isArray(result.sentMessages) ? result.sentMessages : [];
+      await observer?.complete({status: "accepted", messageIds: sent.map(row => row?.id).filter((id): id is string => typeof id === "string")});
+    };
+    try {
+      await send(messages);
     } catch (error: unknown) {
       const status = error && typeof error === "object" && "status" in error ? error.status : undefined;
       // Only a definite rejected request is safe to retry. Never retry a timeout or 5xx.
       if (status === 400 && messages.some((message) => message.type === "textV2")) {
-        try { if (deadlineAtMs !== undefined) remainingTimeout(deadlineAtMs); await client.replyMessage({replyToken, messages: plainMessages}); return; } catch { /* sanitize below */ }
+        try {await send(plainMessages); return;} catch { /* sanitize below */ }
       }
+      if (error instanceof Error && ["ArchivePersistenceError", "ArchiveRedactedError"].includes(error.name)) throw error;
       throw new Error("LINE reply could not be delivered.");
     }
   }

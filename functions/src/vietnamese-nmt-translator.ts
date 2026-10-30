@@ -1,4 +1,7 @@
-import {findLiteralCodeRanges} from "./literal-codes.js";
+import {matchesPreservedTermWhitespace, hasSamePreservedTermCounts} from "./preserved-terms.js";
+import {readNmtHtmlAttributes} from "./nmt-html-attributes.js";
+import {createVietnameseLiteralManifest} from "./vietnamese-literal-policy.js";
+import {assertLiteralIntegrity, type LiteralPlacement} from "./nmt-integrity.js";
 import type {Translator, TranslationContext} from "./services.js";
 import type {RestoredTextRange} from "./message-text.js";
 
@@ -12,6 +15,10 @@ export interface NmtClient {
 }
 export class NmtTranslationError extends Error {
   public constructor() { super("Vietnamese translation service is unavailable."); this.name = "NmtTranslationError"; }
+}
+export class VietnameseNmtOutputRejected extends NmtTranslationError {
+  readonly reason = "nmt_output_validation";
+  constructor() {super(); this.name = "VietnameseNmtOutputRejected";}
 }
 function escapeHtml(text: string): string {
   return text.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;")
@@ -32,7 +39,8 @@ function decodeTransportHtml(text: string): string {
 }
 
 // NMT receives the complete paragraph. Native mentions and literal codes are marked notranslate.
-// This module has no trade policy, model prompt, terminology checks or person-name list.
+// Explicit copy-exact terms share the literal carrier; no term-to-translation mapping.
+// This module has no trade policy, model prompt or person-name list.
 export class VietnameseNmtTranslator implements Translator {
   private client: NmtClient | undefined;
   public constructor(private readonly projectId: string, client?: NmtClient, private readonly onMetric?: (metric: {elapsedMs: number; outcome: "success" | "quality_rejected"; outputCharacters: number; adapterVersion: string}) => void) {
@@ -45,35 +53,31 @@ export class VietnameseNmtTranslator implements Translator {
   }
   public async translateWithRanges(text: string, source: string, target: string,
     context?: TranslationContext): Promise<{text: string; ranges: RestoredTextRange[]}> {
+    const candidate = await this.translateCandidate(text, source, target, context);
+    return {text: candidate.text, ranges: candidate.ranges};
+  }
+  public async translateCandidate(text: string, source: string, target: string,
+    context?: TranslationContext): Promise<{origin: "nmt" | "local"; text: string; ranges: RestoredTextRange[]}> {
     const start = Date.now();
-    let result: {text: string; ranges: RestoredTextRange[]} | undefined;
+    let result: {origin: "nmt" | "local"; text: string; ranges: RestoredTextRange[]} | undefined;
     try {result = await this.translateCore(text, source, target, context); return result;}
     finally {try {this.onMetric?.({elapsedMs: Date.now() - start, outcome: result ? "success" : "quality_rejected", outputCharacters: result ? [...result.text].length : 0, adapterVersion: "vietnamese-nmt-literal-20260929"});} catch { /* Advisory telemetry only. */ }}
   }
   private async translateCore(text: string, source: string, target: string,
-    context?: TranslationContext): Promise<{text: string; ranges: RestoredTextRange[]}> {
+    context?: TranslationContext): Promise<{origin: "nmt" | "local"; text: string; ranges: RestoredTextRange[]}> {
     if (!((source === "zh-TW" && target === "vi") || (source === "vi" && target === "zh-TW"))) {
       throw new Error("Vietnamese program only supports Chinese and Vietnamese.");
     }
     if (!text || text.length > 2000) throw new NmtTranslationError();
-    const nativeRanges = [...context?.protectedRanges ?? []].sort((a, b) => a.start - b.start);
-    let previousEnd = 0;
-    for (const range of nativeRanges) {
-      if (!Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.length) ||
-          range.start < previousEnd || range.length <= 0 || range.start + range.length > text.length) throw new NmtTranslationError();
-      previousEnd = range.start + range.length;
-    }
-    const literalRanges = findLiteralCodeRanges(text).filter(range => !nativeRanges.some(native =>
-      range.start < native.start + native.length && range.start + range.length > native.start));
-    const protectedRanges = [...nativeRanges.map(range => ({...range, native: true})),
-      ...literalRanges.map(range => ({...range, native: false}))].sort((a, b) => a.start - b.start);
-    const literalParagraphs = new Map<number, number>();
+    let manifest: ReturnType<typeof createVietnameseLiteralManifest>;
+    try {manifest = createVietnameseLiteralManifest(text, context);} catch {throw new NmtTranslationError();}
+    const protectedRanges = manifest.occurrences.map(range => ({start: range.start, length: range.length, native: range.nativeRanges.length > 0}));
     type Paragraph = {html: string; translatable: boolean; separator: string};
     const paragraphs: Paragraph[] = [];
     let paragraph: Paragraph = {html: "", translatable: false, separator: ""};
     const appendBody = (body: string) => {
-      for (const piece of body.split(/(\r\n|\r|\n)/u)) {
-        if (/^(?:\r\n|\r|\n)$/u.test(piece)) {
+      for (const piece of body.split(/(\r\n|\r|\n|\u2028|\u2029)/u)) {
+        if (/^(?:\r\n|\r|\n|\u2028|\u2029)$/u.test(piece)) {
           paragraph.separator = piece;
           paragraphs.push(paragraph);
           paragraph = {html: "", translatable: false, separator: ""};
@@ -90,13 +94,13 @@ export class VietnameseNmtTranslator implements Translator {
         throw new NmtTranslationError();
       }
       appendBody(text.slice(cursor, range.start));
-      if (!range.native) literalParagraphs.set(id, paragraphs.length);
       paragraph.html += '<span translate="no" class="notranslate" id="m' + id + '">' +
         escapeHtml(text.slice(range.start, range.start + range.length)) + "</span>";
       cursor = range.start + range.length;
     }
     appendBody(text.slice(cursor));
     paragraphs.push(paragraph);
+    let completeResponse = false;
     try {
       const contents = paragraphs.filter(item => item.translatable).map(item => item.html);
       let translations: string[] = [];
@@ -115,10 +119,13 @@ export class VietnameseNmtTranslator implements Translator {
           if (typeof item.translatedText !== "string" || !item.translatedText.trim()) throw new NmtTranslationError();
           return item.translatedText;
         });
+        completeResponse = true;
       }
       let translatedText = "";
       let translationIndex = 0;
       const ranges: RestoredTextRange[] = [];
+      const placements: LiteralPlacement[] = [];
+      const restoredParagraphs: string[] = [];
       const seen = new Set<number>();
       const appendPlain = (html: string) => {
         if (/[<>]/u.test(html)) throw new NmtTranslationError();
@@ -126,23 +133,32 @@ export class VietnameseNmtTranslator implements Translator {
       };
       for (const [paragraphIndex, item] of paragraphs.entries()) {
         const html = item.translatable ? translations[translationIndex++]! : item.html;
+        // Source separators are restored by this adapter, never supplied by NMT.
+        if (/[\r\n\u2028\u2029]/u.test(html) || /[\r\n\u2028\u2029]/u.test(decodeTransportHtml(html))) throw new NmtTranslationError();
+        const paragraphStart = translatedText.length;
         let offset = 0;
         for (const match of html.matchAll(/<span\b([^>]*)>([^<>]*)<\/span>/giu)) {
           appendPlain(html.slice(offset, match.index));
-          const idMatch = match[1]!.match(/(?:^|\s)id\s*=\s*(["'])m(\d+)\1/iu);
-          const id = idMatch ? Number(idMatch[2]) : -1;
+          const attrs = readNmtHtmlAttributes(match[1]!, ["id", "class", "translate"], decodeTransportHtml);
+          const idMatch = attrs.id?.match(/^m(\d+)$/u);
+          const id = idMatch ? Number(idMatch[1]) : -1;
+          if (attrs.id !== "m" + id) throw new NmtTranslationError();
           const range = protectedRanges[id];
-          if (!range || seen.has(id) || (!range.native && literalParagraphs.get(id) !== paragraphIndex)) throw new NmtTranslationError();
+          if (!range || seen.has(id) || manifest.occurrences[id]!.paragraph !== paragraphIndex) throw new NmtTranslationError();
           const original = text.slice(range.start, range.start + range.length);
-          if (decodeTransportHtml(match[2]!) !== original) throw new NmtTranslationError();
+          const decoded = decodeTransportHtml(match[2]!);
+          if (decoded !== original && (range.native || !matchesPreservedTermWhitespace(original, decoded))) throw new NmtTranslationError();
           if (range.native) ranges.push({sourceStart: range.start, start: translatedText.length, length: original.length});
+          placements.push({id: manifest.occurrences[id]!.id, paragraph: paragraphIndex, start: translatedText.length - paragraphStart, length: original.length});
           translatedText += original;
           seen.add(id);
           offset = match.index + match[0].length;
         }
         appendPlain(html.slice(offset));
+        restoredParagraphs.push(translatedText.slice(paragraphStart));
         translatedText += item.separator;
       }
+      assertLiteralIntegrity(manifest, restoredParagraphs, placements);
       if (target === "vi" && ranges.length) {
         const originalText = translatedText;
         translatedText = "";
@@ -158,11 +174,12 @@ export class VietnameseNmtTranslator implements Translator {
         }
         translatedText += originalText.slice(position);
       }
-      if (seen.size !== protectedRanges.length || !translatedText.trim() || translatedText.length > 4500) {
+      if (seen.size !== protectedRanges.length || !translatedText.trim() || translatedText.length > 4500 || !hasSamePreservedTermCounts(text, translatedText)) {
         throw new NmtTranslationError();
       }
-      return {text: translatedText, ranges};
+      return {origin: contents.length ? "nmt" : "local", text: translatedText, ranges};
     } catch {
+      if (completeResponse) throw new VietnameseNmtOutputRejected();
       throw new NmtTranslationError();
     }
   }

@@ -47,10 +47,22 @@ function setup(initial: Record<string, unknown> = {}, englishBroken = false) {
     createVietnamese, router, dependencies, event, send};
 }
 describe("single webhook translation routing", () => {
+  it("passes the same saved quote and deadline context to the reviewed Vietnamese path", async () => {
+    const t = setup({translationMode: "zh-vi", enabled: true});
+    t.dependencies.solReviewEnabled = true;
+    const getQuotedOriginal = vi.fn(async () => ({status: "known" as const, text: "已保存的引用原文"}));
+    t.dependencies.qualityStore = {getConfig: async () => null, getQuotedOriginal} as never;
+    const event = t.event("Xin chào");
+    await t.send([{...event, message: {...event.message, quotedMessageId: "saved-quote"}}]);
+    expect(getQuotedOriginal).toHaveBeenCalledWith("group", "saved-quote");
+    expect(t.vietnamese.translate).toHaveBeenCalledWith("Xin chào", "vi", "zh-TW", {
+      quoteContext: {status: "known", text: "已保存的引用原文"}, deadlineAtMs: expect.any(Number),
+    });
+  });
   it("defaults off without initializing either translation branch", async () => {
     const t = setup();
     expect(await t.settingsStore.getSettings("group")).toEqual({
-      translationMode: "zh-en", textTranslationEnabled: false, audioTranscriptionEnabled: false, recordingEnabled: true});
+      translationMode: "zh-en", textTranslationEnabled: false, audioTranscriptionEnabled: false, recordingEnabled: false});
     await t.send([t.event("你好"), t.event("/翻譯設定")]);
     expect(t.collection).toHaveBeenCalledWith("lineTranslationGroups");
     expect(t.createEnglish).not.toHaveBeenCalled();

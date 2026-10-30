@@ -90,3 +90,23 @@ Node 22 的實際隔離包已通過型別檢查、建置、1,539 項應用、45 
 2026-10-05 plain-blank-lines-20261005-final1 已依「改進這個問題，部署 DEV」授權發布 linewebhook-00014-qoh／ACTIVE／100%；431 檔封裝獨立驗證、65 檔／2,198 應用與 85 工具完整 verify／predeploy 通過，278 個凍結應用檔及 212 個雲端來源逐 byte 相同。3 筆真實 NMT 驗證本例修復、來源空行保留及 HTML 反例不放寬，dotenv 原樣沿用 html-name-copy-20261005-final1，現有別名不變。部署零翻譯健康檢查通過，HNC-I01／既有語意品質與手機驗收仍待完成，詳 [純文字空白行修復](NMT固定主路徑交付20261002.md#純文字空白行修復2026-10-05)。
 
 2026-10-06 compact-html-20261006-final1 已依使用者授權發布 DEV linewebhook-00015-lap／ACTIVE／100%；442 檔隔離包獨立核對、67 檔／2,230 應用與 85 工具、完整 Firebase predeploy、220 檔雲端來源及零翻譯健康檢查通過。dotenv 原樣沿用 plain-blank-lines-20261005-final1，既有別名及啟用 API 保持，未部署 PRD 或發送真人 LINE；詳 [HTML 精簡與部署](NMT精簡HTML傳輸20261006.md)。
+
+## 2026-10-14 完整歷程封裝與背景工作
+
+CONVERSATION_ARCHIVE_ENABLED=true時，封裝要求五個歷程compiled模組，管理predeploy確認既有archive config及私有bucket安全設定；只部署lineWebhook與conversationArchiveWorker。worker已計畫retry:true，故DEV的非互動CLI加入--force接受失敗重試。旗標關閉或缺省時維持單一webhook且不加--force，既有DEV身分、project、runtime、Secret、ledger及標準完整檢查維持。
+
+從雲端現行配置產生dotenv時，以實際Firebase CLI parseStrict／validateKey區分應用自訂值與系統保留鍵；EVENTARC_CLOUD_EVENT_SOURCE、FUNCTION_REGION由雲端產生，不作使用者部署輸入。既有應用值及別名字串原樣保留，不重新解析人物映射。首次加入worker的發布前唯讀核對所有region函式名稱，避免--only的前綴匹配選到額外函式；確認Artifact Registry已有清理政策，發布後核對政策保持。本次不新增API或藉旗標修改清理政策。功能契約、驗證與部署狀態見 [完整歷程](完整對話歷程記錄20261014.md)。
+
+本次DEV r4已發布；首次Eventarc代理權限傳播及私有worker投遞前置缺項的失敗證據保留。必要權限包含runtime的storage.objectUser、eventarc.eventReceiver，以及worker單一Cloud Run服務的run.invoker；角色存在仍須以真合成事件確認投遞。重試前先保存Firebase生成debug日誌並核對雜湊，再移出凍結輸入，不放寬封裝檔案完整性檢查。最終main／worker來源各256檔、ACTIVE／100%、十項probe及合成清除通過，手機驗收另列。
+
+## 2026-10-18 Webhook 記憶體提高至 512 MiB
+
+memory512-20261018-r2 使用現行 dotenv 原樣封裝，484 檔凍結、完整 2,343＋86 檢查及標準 predeploy 通過，發布 DEV linewebhook-00020-zaf／conversationarchiveworker-00002-quc，皆 ACTIVE／100%。只有 webhook memory 256→512 MiB；CPU、並行、時限、實例與其他設定保持。worker 隨標準 launcher 更新來源，原有 512 MiB 與所有行為／資源設定保持；兩函式各 405 個完整來源、三項線上健康與同一 verifier 獨立部署後核對通過，詳 [記憶體調整](Webhook記憶體調整20261018.md)。
+
+## 2026-10-29 中越 Sol 與指定片語 DEV 發布
+
+2026-10-29 DEV linewebhook-00021-hak／conversationarchiveworker-00003-bux ACTIVE／100% 已發布，中越接入與中英相同的 Sol 評審／必要原文單次重譯，mít color 原樣規則生效。隔離包 vi-sol-20261029-r2 的498檔 manifest 與獨立候選吻合，包內及 Firebase predeploy 的2415項應用、86項工具、型別及建置通過；兩函式雲端來源各417檔逐SHA相同，缺漏／新增／不符為零。現有資源、dotenv／別名含Wei、Secret綁定、啟用API、品質／歷程設定及Artifact清理政策保持；一群在發布期間由相符LINE指令切換zh-vi，其他群組欄位保持，沒有回寫覆蓋（concurrent-group-command.json）。GET405／錯誤簽章401／簽章空事件200及新包發布後兩案真NMT＋Sol／LINE替身、持久階段與重送檢查通過。 詳見 [中越 Sol 整合與 DEV 發布](中越Sol評審與DEV發布20261029.md)。原句經自動評審指出貨重／包裝重量差異後單次重譯；Sol記錄新增可選sourceLanguageCode／targetLanguageCode，NMT檢查、review、rewrite、引用及finalSource沿用原分欄，歷史缺欄位不回填。重譯semanticEvaluation仍not_evaluated，手機及既有語意品質findings不視為通過；PRD維持原版。
+
+## 2026-10-29 減少重複檢查
+
+依使用者最新要求，[Codex開發流程第4.1節](Codex開發流程.md#41-同產物沿用與測試分層2026-10-29)統一完整證據沿用：開發先定向、穩定產物完整一次，DEV驗收後同應用產物升PRD只核對環境差異與必要guard／健康，不再例行多處全跑。上文與工具現有verify描述是當時實作；本次已凍結／已部署包不改寫。下次候選建立前須適配仍硬性重複verify的入口，保留產物／lock／runtime／證據SHA與拒絕失效證據的guard，不能在發布途中臨時略過。此輪未修改工具程式或移除歷史測試，不能宣稱已自動快取。

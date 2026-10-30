@@ -1,5 +1,5 @@
 import {glossaryRecordFile} from './nmt-glossary-spec.mjs';
-import {devRuntimeConfiguration} from './dev-request-profile.mjs';
+import {devRuntimeConfiguration,devDeployOptions} from './dev-request-profile.mjs';
 import {provisionNmtGlossaries} from './nmt-glossary-provision.mjs';
 import {fileURLToPath} from 'node:url';
 import {AuthenticatedNmtTransport} from '../lib/nmt-controlled-client.js';
@@ -9,6 +9,7 @@ import {readFileSync,writeFileSync,existsSync,mkdirSync,unlinkSync} from 'node:f
 import {resolve} from 'node:path';
 import {initializeApp} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
+import {getStorage} from 'firebase-admin/storage';
 import {v3} from '@google-cloud/translate';
 import {createHash,randomBytes} from 'node:crypto';
 import {NMT_TEST_PROJECT as project,NMT_TEST_ACCOUNT as account,NMT_RUNTIME_ACCOUNT as runtime,NMT_GLOSSARIES} from '../lib/nmt-isolation.js';
@@ -87,12 +88,19 @@ if(action==='deploy'||action==='deploy-check'){
  }
  if(existsSync(resolve(root,'functions/.env.line-auto-translate-bot'))||existsSync(resolve(root,'functions/.env')))throw Error('Unscoped/production dotenv prohibited in test deploy');
  const db=getFirestore(initializeApp({projectId:project}));
- try{const ledger=validateNmtLedger((await db.doc(NMT_LEDGER_PATH).get()).data(),project);if(ledger.version===2)validateNmtPolicyHistory((await db.doc(NMT_MIGRATION_PATH).get()).data(),ledger);}finally{await db.terminate();}
+ try{const ledger=validateNmtLedger((await db.doc(NMT_LEDGER_PATH).get()).data(),project);if(ledger.version===2)validateNmtPolicyHistory((await db.doc(NMT_MIGRATION_PATH).get()).data(),ledger);
+  if(configuration.archiveEnabled){
+   const config=await db.doc('lineConversationArchiveConfig/current').get();
+   if(config.get('enabled')!==true||config.get('version')!=='conversation-archive-v1'||!config.get('startedAt')?.toDate)throw Error('Conversation archive configuration not prepared');
+   const [bucket]=await getStorage().bucket(project+'-conversation-archive').getMetadata();
+   if(bucket.location!=='ASIA-EAST1'||bucket.iamConfiguration?.publicAccessPrevention!=='enforced'||!bucket.iamConfiguration?.uniformBucketLevelAccess?.enabled||bucket.versioning?.enabled||bucket.retentionPolicy||Number(bucket.softDeletePolicy?.retentionDurationSeconds??0)!==0)throw Error('Conversation archive bucket not prepared');
+  }
+ }finally{await db.terminate();}
  if(configuration.glossaryRequired)await verifyGlossaries(JSON.parse(readFileSync(resolve(root,'.local/evidence/'+glossaryRecordFile),'utf8')));
  if(action==='deploy'){
   const session={nonce:randomBytes(32).toString('hex'),project,account,createdAt:Date.now()},path=resolve(root,'.local/nmt-auth/deploy-session.json');
   writeFileSync(path,JSON.stringify(session),{flag:'wx'});
-  try{command('firebase',['deploy','--only','functions:lineWebhook','--project='+project,'--account='+account,'--non-interactive'],false,{...process.env,NMT_DEPLOY_SESSION:session.nonce});}
+  try{command('firebase',['deploy',...devDeployOptions(configuration),'--project='+project,'--account='+account,'--non-interactive'],false,{...process.env,NMT_DEPLOY_SESSION:session.nonce});}
   catch(error){console.error(error.message);process.exitCode=error.exitCode??1;}
   finally{unlinkSync(path);}
  }

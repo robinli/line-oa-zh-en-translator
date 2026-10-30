@@ -48,13 +48,13 @@ function setup() {const db = new MemoryFirestore(); db.documents.set(QUALITY_CON
   const docs = (collection: string) => [...db.documents].filter(([path]) => path.startsWith(collection + "/") && !path.slice(collection.length + 1).includes("/")).map(([, value]) => value);
   return {db, store, report, docs, advance: (ms: number) => {clock = new Date(clock.getTime() + ms);}};
 }
-it("recording defaults on, persists per group and keeps translation settings intact", async () => {
+it("new groups default off while explicit recording persists without changing translation", async () => {
   const t = setup(); const id = groups[0]!.id;
-  t.db.documents.set(`lineTranslationGroups/${id}`, {translationMode: "zh-vi", textTranslationEnabled: false, audioTranscriptionEnabled: true});
+  t.db.documents.set(`lineTranslationGroups/${id}`, {recordingEnabled: true, translationMode: "zh-vi", textTranslationEnabled: false, audioTranscriptionEnabled: true});
   expect(await t.store.getRecordingEnabled(id)).toBe(true);
   expect(await t.store.setRecordingEnabled(id, false, "owner", "off", +now)).toEqual({enabled: false, applied: true});
   expect(await t.store.getRecordingEnabled(id)).toBe(false);
-  expect(await t.store.getRecordingEnabled(groups[1]!.id)).toBe(true);
+  expect(await t.store.getRecordingEnabled(groups[1]!.id)).toBe(false);
   expect(t.db.documents.get(`lineTranslationGroups/${id}`)).toMatchObject({translationMode: "zh-vi", textTranslationEnabled: false, audioTranscriptionEnabled: true, recordingEnabled: false});
   await t.store.setRecordingEnabled(id, true, "owner", "on", +now + 1);
   expect(await t.store.getRecordingEnabled(id)).toBe(true);
@@ -72,7 +72,7 @@ it("duplicate, stale and equal-time recording commands never undo the newer sett
 it("failed setting transaction does not commit a flag or a receipt", async () => {
   const t = setup(); t.db.failCommit = true;
   await expect(t.store.setRecordingEnabled(groups[0]!.id, false, "owner", "off", +now)).rejects.toThrow();
-  expect(await t.store.getRecordingEnabled(groups[0]!.id)).toBe(true);
+  expect(await t.store.getRecordingEnabled(groups[0]!.id)).toBe(false);
   expect(t.db.documents.size).toBe(1);
 });
 it("disabled groups remain discoverable and their historical records searchable", async () => {

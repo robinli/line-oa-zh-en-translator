@@ -75,7 +75,7 @@ it("PRD capture supports defaults, controls and raw output without overwriting g
  const f = await fixture(), id = "C" + "1".repeat(32), now = new Date();
  f.db.rows.set(QUALITY_CONFIG_PATH, {enabled: true, groups: [], startedAt: now}); f.db.rows.set("lineTranslationGroups/" + id, {translationMode: "zh-vi", textTranslationEnabled: true, audioTranscriptionEnabled: false});
  const store = new FirestoreTranslationQualityStore(f.db as unknown as Firestore, {projectId: project});
- expect((await store.getConfig())?.groups).toHaveLength(1); expect(await store.getRecordingEnabled(id)).toBe(true);
+ expect((await store.getConfig())?.groups).toHaveLength(1); expect(await store.getRecordingEnabled(id)).toBe(false);
  await store.setRecordingEnabled(id, false, "owner", "toggle", +now); expect(await store.getRecordingEnabled(id)).toBe(false);
  expect(f.db.rows.get("lineTranslationGroups/" + id)).toMatchObject({translationMode: "zh-vi", textTranslationEnabled: true, audioTranscriptionEnabled: false});
  const record = {groupId: id, groupName: "Synthetic", senderUserId: "synthetic", webhookEventId: "capture", messageId: "capture", messageType: "text", eventTime: now, recordedAt: now, sourceText: "Test"};

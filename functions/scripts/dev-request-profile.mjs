@@ -1,7 +1,7 @@
 export function devRuntimeConfiguration(env) {
   const selected = {};
   for (const line of env.split(/\r\n|\r|\n/)) {
-    const match = /^(TRANSLATION_ENGINE|NMT_REQUEST_PROFILE|TEST_RUNTIME_SERVICE_ACCOUNT|SOL_REVIEW_ENABLED)=(.*)$/.exec(line);
+    const match = /^(TRANSLATION_ENGINE|NMT_REQUEST_PROFILE|TEST_RUNTIME_SERVICE_ACCOUNT|SOL_REVIEW_ENABLED|CONVERSATION_ARCHIVE_ENABLED)=(.*)$/.exec(line);
     if (!match) continue;
     if (Object.hasOwn(selected, match[1])) throw Error('Test runtime configuration mismatch: duplicate controlled parameter');
     selected[match[1]] = match[2];
@@ -12,5 +12,9 @@ export function devRuntimeConfiguration(env) {
   if ((!legacy && !direct) || selected.TEST_RUNTIME_SERVICE_ACCOUNT !== 'nmt-test-runtime@line-auto-translate-bot-dev.iam.gserviceaccount.com') throw Error('Test runtime configuration mismatch');
   if (selected.SOL_REVIEW_ENABLED !== undefined && !['true', 'false'].includes(selected.SOL_REVIEW_ENABLED)) throw Error('Invalid Sol review switch');
   if (selected.SOL_REVIEW_ENABLED === 'true' && !direct) throw Error('Sol review requires NMT direct');
-  return {engine, profile, ...(selected.SOL_REVIEW_ENABLED === 'true' ? {solReviewEnabled: true} : {}), glossaryRequired: profile !== 'nmt-direct-v1'};
+  if (selected.CONVERSATION_ARCHIVE_ENABLED !== undefined && !['true', 'false'].includes(selected.CONVERSATION_ARCHIVE_ENABLED)) throw Error('Invalid conversation archive switch');
+  return {engine, profile, ...(selected.CONVERSATION_ARCHIVE_ENABLED === 'true' ? {archiveEnabled: true} : {}), ...(selected.SOL_REVIEW_ENABLED === 'true' ? {solReviewEnabled: true} : {}), glossaryRequired: profile !== 'nmt-direct-v1'};
 }
+export function devDeployTargets(configuration) {return configuration.archiveEnabled ? 'functions:lineWebhook,functions:conversationArchiveWorker' : 'functions:lineWebhook';}
+// The archive worker's planned retry policy requires explicit non-interactive Firebase acceptance.
+export function devDeployOptions(configuration) {return ['--only',devDeployTargets(configuration),...(configuration.archiveEnabled ? ['--force'] : [])];}
